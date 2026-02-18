@@ -8,6 +8,8 @@ from typing import Any
 from attest._proto.types import (
     TYPE_CONSTRAINT,
     TYPE_CONTENT,
+    TYPE_EMBEDDING,
+    TYPE_LLM_JUDGE,
     TYPE_SCHEMA,
     TYPE_TRACE,
     Assertion,
@@ -331,6 +333,52 @@ class ExpectChain:
                 "check": "contains",
                 "value": value,
                 "case_sensitive": case_sensitive,
+                "soft": soft,
+            },
+        )
+
+    # ── Layer 5: Embedding Similarity ──
+
+    def output_similar_to(
+        self,
+        reference: str,
+        *,
+        threshold: float = 0.8,
+        model: str | None = None,
+        soft: bool = False,
+    ) -> ExpectChain:
+        """Assert output message is semantically similar to reference using embedding cosine similarity."""
+        return self._add(
+            TYPE_EMBEDDING,
+            {
+                "target": "output.message",
+                "reference": reference,
+                "threshold": threshold,
+                "model": model,
+                "soft": soft,
+            },
+        )
+
+    # ── Layer 6: LLM Judge ──
+
+    def passes_judge(
+        self,
+        criteria: str,
+        *,
+        rubric: str = "default",
+        threshold: float = 0.8,
+        model: str | None = None,
+        soft: bool = False,
+    ) -> ExpectChain:
+        """Assert output message passes LLM judge evaluation against given criteria."""
+        return self._add(
+            TYPE_LLM_JUDGE,
+            {
+                "target": "output.message",
+                "criteria": criteria,
+                "rubric": rubric,
+                "threshold": threshold,
+                "model": model,
                 "soft": soft,
             },
         )
