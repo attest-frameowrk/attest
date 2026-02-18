@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "attest-ai"
-version = "0.1.0.dev0"
+version = "0.1.0"
 description = "Test framework for AI agents"
 readme = "README.md"
 license = "Apache-2.0"
@@ -28,12 +28,20 @@ dev = [
     "pytest-asyncio>=0.23",
     "ruff>=0.4",
     "mypy>=1.10",
+    "twine>=6.0",
+    "build>=1.0",
 ]
 openai = ["openai>=1.30"]
 anthropic = ["anthropic>=0.30"]
 gemini = ["google-genai>=1.0"]
 ollama = ["ollama>=0.4"]
 all = ["attest-ai[openai,anthropic,gemini,ollama]"]
+
+[project.urls]
+Homepage = "https://github.com/attest-frameowrk/attest"
+Repository = "https://github.com/attest-frameowrk/attest"
+Issues = "https://github.com/attest-frameowrk/attest/issues"
+Documentation = "https://github.com/attest-frameowrk/attest#readme"
 
 [project.entry-points.pytest11]
 attest = "attest.plugin"

@@ -19,7 +19,7 @@ from attest.expect import ExpectChain, expect
 from attest.result import AgentResult
 from attest.trace import TraceBuilder
 
-__version__: str = "0.1.0.dev0"
+__version__: str = "0.1.0"
 
 __all__ = [
     # Core types
