@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "attest-ai"
-version = "0.1.0"
+version = "0.2.0"
 description = "Test framework for AI agents"
 readme = "README.md"
 license = "Apache-2.0"
@@ -35,7 +35,8 @@ openai = ["openai>=1.30"]
 anthropic = ["anthropic>=0.30"]
 gemini = ["google-genai>=1.0"]
 ollama = ["ollama>=0.4"]
-all = ["attest-ai[openai,anthropic,gemini,ollama]"]
+otel = ["opentelemetry-api>=1.20", "opentelemetry-sdk>=1.20"]
+all = ["attest-ai[openai,anthropic,gemini,ollama,otel]"]
 
 [project.urls]
 Homepage = "https://github.com/attest-frameowrk/attest"
@@ -62,3 +63,7 @@ testpaths = ["tests"]
 [tool.mypy]
 python_version = "3.10"
 strict = true
+
+[[tool.mypy.overrides]]
+module = ["opentelemetry.*"]
+ignore_missing_imports = true
