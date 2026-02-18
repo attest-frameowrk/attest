@@ -7,16 +7,12 @@ import pytest
 from attest._proto.types import (
     Assertion,
     AssertionResult,
-    Step,
     Trace,
-    TraceMetadata,
     STATUS_PASS,
-    STATUS_HARD_FAIL,
-    STATUS_SOFT_FAIL,
-    TYPE_SCHEMA,
-    TYPE_CONSTRAINT,
-    TYPE_TRACE,
     TYPE_CONTENT,
+    TYPE_CONSTRAINT,
+    TYPE_SCHEMA,
+    TYPE_TRACE,
 )
 from attest.result import AgentResult
 from attest.trace import TraceBuilder
@@ -78,6 +74,82 @@ def sample_result(sample_trace: Trace) -> AgentResult:
                 status=STATUS_PASS,
                 score=1.0,
                 explanation="Cost under budget",
+            ),
+        ],
+    )
+
+
+@pytest.fixture
+def embedding_result() -> AgentResult:
+    """An AgentResult with a known output message for embedding similarity testing."""
+    trace = (
+        TraceBuilder(agent_id="embed-test-agent")
+        .set_trace_id("trc_test_embed")
+        .set_input(user_message="What is the capital of France?")
+        .add_llm_call(
+            "reasoning",
+            args={"model": "gpt-4.1"},
+            result={"completion": "Paris is the capital of France."},
+            metadata={"duration_ms": 800},
+        )
+        .set_output(
+            message="Paris is the capital of France.",
+            structured={"answer": "Paris", "confidence": 0.99},
+        )
+        .set_metadata(
+            total_tokens=120,
+            cost_usd=0.0002,
+            latency_ms=900,
+            model="gpt-4.1",
+        )
+        .build()
+    )
+    return AgentResult(
+        trace=trace,
+        assertion_results=[
+            AssertionResult(
+                assertion_id="embed_1",
+                status=STATUS_PASS,
+                score=0.95,
+                explanation="Embedding similarity above threshold",
+            ),
+        ],
+    )
+
+
+@pytest.fixture
+def judge_result() -> AgentResult:
+    """An AgentResult with a known output message for LLM judge testing."""
+    trace = (
+        TraceBuilder(agent_id="judge-test-agent")
+        .set_trace_id("trc_test_judge")
+        .set_input(user_message="Explain how a transformer model works.")
+        .add_llm_call(
+            "reasoning",
+            args={"model": "gpt-4.1"},
+            result={"completion": "A transformer uses attention mechanisms to process sequences in parallel."},
+            metadata={"duration_ms": 1500},
+        )
+        .set_output(
+            message="A transformer uses attention mechanisms to process sequences in parallel, enabling efficient training on large datasets.",
+            structured={"topic": "transformers", "confidence": 0.92},
+        )
+        .set_metadata(
+            total_tokens=350,
+            cost_usd=0.0008,
+            latency_ms=1600,
+            model="gpt-4.1",
+        )
+        .build()
+    )
+    return AgentResult(
+        trace=trace,
+        assertion_results=[
+            AssertionResult(
+                assertion_id="judge_1",
+                status=STATUS_PASS,
+                score=0.88,
+                explanation="Response meets clarity and accuracy criteria",
             ),
         ],
     )
