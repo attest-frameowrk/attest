@@ -1,0 +1,100 @@
+package assertion
+
+import (
+	"encoding/json"
+	"fmt"
+	"time"
+
+	"github.com/attest-ai/attest/engine/pkg/types"
+	"github.com/santhosh-tekuri/jsonschema/v6"
+)
+
+// SchemaEvaluator implements Layer 1: JSON Schema validation.
+type SchemaEvaluator struct{}
+
+func (e *SchemaEvaluator) Evaluate(trace *types.Trace, assertion *types.Assertion) *types.AssertionResult {
+	start := time.Now()
+
+	var spec struct {
+		Target string          `json:"target"`
+		Schema json.RawMessage `json:"schema"`
+	}
+	if err := json.Unmarshal(assertion.Spec, &spec); err != nil {
+		return failResult(assertion, start, fmt.Sprintf("invalid schema spec: %v", err))
+	}
+	if spec.Target == "" {
+		return failResult(assertion, start, "schema spec missing required field: target")
+	}
+	if len(spec.Schema) == 0 {
+		return failResult(assertion, start, "schema spec missing required field: schema")
+	}
+
+	targetValue, err := ResolveTarget(trace, spec.Target)
+	if err != nil {
+		return failResult(assertion, start, fmt.Sprintf("target resolution failed: %v", err))
+	}
+
+	// Unmarshal schema doc into any so AddResource accepts it.
+	var schemaDoc any
+	if err := json.Unmarshal(spec.Schema, &schemaDoc); err != nil {
+		return failResult(assertion, start, fmt.Sprintf("invalid JSON schema: %v", err))
+	}
+
+	compiler := jsonschema.NewCompiler()
+	if err := compiler.AddResource("schema.json", schemaDoc); err != nil {
+		return failResult(assertion, start, fmt.Sprintf("schema compilation failed: %v", err))
+	}
+	schema, err := compiler.Compile("schema.json")
+	if err != nil {
+		return failResult(assertion, start, fmt.Sprintf("schema compilation failed: %v", err))
+	}
+
+	var value any
+	if err := json.Unmarshal(targetValue, &value); err != nil {
+		return failResult(assertion, start, fmt.Sprintf("cannot parse target value: %v", err))
+	}
+
+	if err := schema.Validate(value); err != nil {
+		return &types.AssertionResult{
+			AssertionID: assertion.AssertionID,
+			Status:      types.StatusHardFail,
+			Score:       0.0,
+			Explanation: fmt.Sprintf("%s failed schema validation: %v", spec.Target, err),
+			DurationMS:  time.Since(start).Milliseconds(),
+			RequestID:   assertion.RequestID,
+		}
+	}
+
+	return &types.AssertionResult{
+		AssertionID: assertion.AssertionID,
+		Status:      types.StatusPass,
+		Score:       1.0,
+		Explanation: fmt.Sprintf("%s matches schema: all required fields present, types valid.", spec.Target),
+		DurationMS:  time.Since(start).Milliseconds(),
+		RequestID:   assertion.RequestID,
+	}
+}
+
+// failResult constructs a hard_fail AssertionResult with the given explanation.
+func failResult(assertion *types.Assertion, start time.Time, explanation string) *types.AssertionResult {
+	return &types.AssertionResult{
+		AssertionID: assertion.AssertionID,
+		Status:      types.StatusHardFail,
+		Score:       0.0,
+		Explanation: explanation,
+		DurationMS:  time.Since(start).Milliseconds(),
+		RequestID:   assertion.RequestID,
+	}
+}
+
+// passResult constructs a pass AssertionResult with score 1.0.
+func passResult(assertion *types.Assertion, start time.Time, explanation string) *types.AssertionResult {
+	return &types.AssertionResult{
+		AssertionID: assertion.AssertionID,
+		Status:      types.StatusPass,
+		Score:       1.0,
+		Explanation: explanation,
+		DurationMS:  time.Since(start).Milliseconds(),
+		RequestID:   assertion.RequestID,
+	}
+}
