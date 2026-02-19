@@ -32,8 +32,8 @@ stderr ──► Engine debug log output only (never parsed by SDK)
 
 **Wire example (two messages):**
 ```
-{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"sdk_name":"attest-python","sdk_version":"0.1.0","protocol_version":1,"required_capabilities":["layers_1_4"],"preferred_encoding":"json"}}\n
-{"jsonrpc":"2.0","id":1,"result":{"engine_version":"0.1.0","protocol_version":1,"capabilities":["layers_1_4"],"missing":[],"compatible":true,"encoding":"json"}}\n
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"sdk_name":"attest-python","sdk_version":"0.3.0","protocol_version":1,"required_capabilities":["layers_1_4"],"preferred_encoding":"json"}}\n
+{"jsonrpc":"2.0","id":1,"result":{"engine_version":"0.3.0","protocol_version":1,"capabilities":["layers_1_4"],"missing":[],"compatible":true,"encoding":"json","max_concurrent_requests":1}}\n
 ```
 
 ### 1.3 Stderr Logging
@@ -57,11 +57,12 @@ Log levels controlled by `--log-level` flag on engine startup: `debug`, `info`, 
 
 ### 1.5 Concurrency
 
-- The engine processes requests concurrently
-- Request IDs uniquely identify in-flight requests
-- Responses may arrive out of order relative to requests
-- The SDK must match responses to requests by `id`
-- Maximum concurrent in-flight requests: 64 (engine-configured, advertised in initialize response)
+- **stdio mode (current):** The engine dispatches requests sequentially — one request
+  is processed to completion before the next is read. Responses arrive in request order.
+  `max_concurrent_requests` is `1` in stdio mode.
+- **gRPC shared-engine mode (planned v0.5+):** Concurrent dispatch with out-of-order
+  responses. `max_concurrent_requests` will be `> 1` when this mode is active.
+- Request IDs are included for traceability and future compatibility with concurrent dispatch.
 
 ---
 
@@ -80,7 +81,7 @@ Sent by the SDK immediately after spawning the engine. Establishes the session a
   "method": "initialize",
   "params": {
     "sdk_name": "attest-python",
-    "sdk_version": "0.1.0",
+    "sdk_version": "0.3.0",
     "protocol_version": 1,
     "required_capabilities": ["layers_1_4", "soft_failures"],
     "preferred_encoding": "json"
@@ -105,13 +106,13 @@ Sent by the SDK immediately after spawning the engine. Establishes the session a
   "jsonrpc": "2.0",
   "id": 1,
   "result": {
-    "engine_version": "0.1.0",
+    "engine_version": "0.3.0",
     "protocol_version": 1,
     "capabilities": ["layers_1_4", "soft_failures"],
     "missing": [],
     "compatible": true,
     "encoding": "json",
-    "max_concurrent_requests": 64,
+    "max_concurrent_requests": 1,
     "max_trace_size_bytes": 10485760,
     "max_steps_per_trace": 10000
   }
@@ -1047,6 +1048,8 @@ Computes semantic similarity between agent output and a reference text using emb
 ### Layer 6 — LLM-as-Judge
 
 Uses a configurable LLM to evaluate agent output against a rubric. Supports built-in rubrics (faithfulness, helpfulness, safety) and custom judge prompts.
+
+**Engine-side provider support:** OpenAI only. Planned v0.4: Anthropic, Gemini, Ollama.
 
 **Requires capability:** `layers_5_6`
 

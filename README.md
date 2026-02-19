@@ -70,7 +70,7 @@ SDK (Python/TS/Go) ──stdin/stdout──▶ Engine Process (Go)
 - **7-layer assertion pipeline** — graduated from free/deterministic to paid/probabilistic
 - **Soft failure budgets** — scores between 0.5–0.8 warn without blocking CI
 - **Cost as a test metric** — assert on token usage, API cost, and latency
-- **Framework-agnostic** — adapters for OpenAI, Anthropic, Gemini, Ollama, OTel
+- **Framework-agnostic** — SDK adapters for OpenAI, Anthropic, Gemini, Ollama, OTel; engine judge: OpenAI (Anthropic, Gemini, Ollama planned v0.4)
 - **Local ONNX embeddings** — optional all-MiniLM-L6-v2 provider, zero API cost for Layer 5
 - **Judge meta-evaluation** — 3x judge runs with median scoring and variance detection
 - **CI-ready** — composite GitHub Action, tiered testing workflow, adversarial hardening
