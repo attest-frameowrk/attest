@@ -8,6 +8,7 @@ import os
 import shutil
 from typing import Any
 
+from attest import __version__
 from attest._proto.codec import decode_response, encode_request, extract_result
 from attest._proto.types import InitializeParams, InitializeResult
 
@@ -65,7 +66,7 @@ class EngineManager:
 
         result = await self._send_request("initialize", InitializeParams(
             sdk_name="attest-python",
-            sdk_version="0.1.0",
+            sdk_version=__version__,
             protocol_version=1,
             required_capabilities=["layers_1_4"],
         ).to_dict())
