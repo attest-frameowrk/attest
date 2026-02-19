@@ -1,0 +1,10 @@
+{
+  "private": true,
+  "name": "@attest-ai/workspace",
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "test:integration": "pnpm -r test:integration",
+    "lint": "pnpm -r lint"
+  }
+}
