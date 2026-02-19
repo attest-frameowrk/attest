@@ -431,6 +431,19 @@ class ExpectChain:
             },
         )
 
+    def follows_transitions(
+        self, transitions: list[tuple[str, str]], *, soft: bool = False
+    ) -> ExpectChain:
+        """Assert agent delegations follow the specified transitions."""
+        return self._add(
+            TYPE_TRACE_TREE,
+            {
+                "check": "follows_transitions",
+                "transitions": [list(pair) for pair in transitions],
+                "soft": soft,
+            },
+        )
+
     def aggregate_cost_under(self, max_cost: float, *, soft: bool = False) -> ExpectChain:
         """Assert aggregate cost across trace tree is under threshold."""
         return self._add(

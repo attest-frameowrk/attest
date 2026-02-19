@@ -97,6 +97,24 @@ def test_expect_soft_flag() -> None:
     assert chain.assertions[0].spec["soft"] is True
 
 
+def test_expect_follows_transitions() -> None:
+    transitions = [("orchestrator", "researcher"), ("researcher", "writer")]
+    chain = expect(_make_result()).follows_transitions(transitions)
+    assert len(chain.assertions) == 1
+    a = chain.assertions[0]
+    assert a.type == "trace_tree"
+    assert a.spec["check"] == "follows_transitions"
+    assert a.spec["transitions"] == [["orchestrator", "researcher"], ["researcher", "writer"]]
+    assert a.spec["soft"] is False
+
+
+def test_expect_follows_transitions_soft() -> None:
+    chain = expect(_make_result()).follows_transitions(
+        [("a", "b")], soft=True
+    )
+    assert chain.assertions[0].spec["soft"] is True
+
+
 def test_expect_tool_schema() -> None:
     schema = {"type": "object", "required": ["order_id"]}
     chain = expect(_make_result()).tool_args_match_schema("lookup_order", schema)

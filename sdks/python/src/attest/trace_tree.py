@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from attest._proto.types import STEP_AGENT_CALL, Trace
+from attest._proto.types import STEP_AGENT_CALL, STEP_TOOL_CALL, Step, Trace
 
 
 @dataclass
@@ -66,6 +66,30 @@ class TraceTree:
         for step in trace.steps:
             if step.type == STEP_AGENT_CALL and step.sub_trace is not None:
                 self._flatten(step.sub_trace, acc)
+
+    @property
+    def delegations(self) -> list[tuple[str, str]]:
+        """Return list of (parent_agent_id, child_agent_id) delegation pairs."""
+        result: list[tuple[str, str]] = []
+        self._collect_delegations(self.root, result)
+        return result
+
+    def _collect_delegations(self, trace: Trace, acc: list[tuple[str, str]]) -> None:
+        parent_id = trace.agent_id or ""
+        for step in trace.steps:
+            if step.type == STEP_AGENT_CALL and step.sub_trace is not None:
+                child_id = step.sub_trace.agent_id or ""
+                acc.append((parent_id, child_id))
+                self._collect_delegations(step.sub_trace, acc)
+
+    def all_tool_calls(self) -> list[Step]:
+        """Return all tool_call steps across the entire trace tree."""
+        return [
+            step
+            for t in self.flatten()
+            for step in t.steps
+            if step.type == STEP_TOOL_CALL
+        ]
 
     @property
     def aggregate_tokens(self) -> int:
