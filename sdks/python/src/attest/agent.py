@@ -34,13 +34,19 @@ class Agent:
 
     def run(self, **kwargs: Any) -> AgentResult:
         """Run the agent synchronously and capture the trace."""
+        from attest.simulation._context import _active_builder
+
         if self._fn is None:
             raise RuntimeError("No agent function provided. Pass fn= to Agent().")
 
         builder = TraceBuilder(agent_id=self.name)
         builder.set_input_dict(kwargs)
 
-        output = self._fn(builder=builder, **kwargs)
+        token = _active_builder.set(builder)
+        try:
+            output = self._fn(builder=builder, **kwargs)
+        finally:
+            _active_builder.reset(token)
 
         if isinstance(output, dict):
             builder.set_output_dict(output)
@@ -54,16 +60,22 @@ class Agent:
 
     async def arun(self, **kwargs: Any) -> AgentResult:
         """Run the agent asynchronously and capture the trace."""
+        from attest.simulation._context import _active_builder
+
         if self._fn is None:
             raise RuntimeError("No agent function provided. Pass fn= to Agent().")
 
         builder = TraceBuilder(agent_id=self.name)
         builder.set_input_dict(kwargs)
 
-        if asyncio.iscoroutinefunction(self._fn):
-            output = await self._fn(builder=builder, **kwargs)
-        else:
-            output = self._fn(builder=builder, **kwargs)
+        token = _active_builder.set(builder)
+        try:
+            if asyncio.iscoroutinefunction(self._fn):
+                output = await self._fn(builder=builder, **kwargs)
+            else:
+                output = self._fn(builder=builder, **kwargs)
+        finally:
+            _active_builder.reset(token)
 
         if isinstance(output, dict):
             builder.set_output_dict(output)

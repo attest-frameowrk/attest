@@ -51,6 +51,13 @@ class TraceBuilder:
         result: dict[str, Any] | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> TraceBuilder:
+        from attest.simulation._context import _active_mock_registry
+
+        registry = _active_mock_registry.get(None)
+        if registry is not None and name in registry:
+            mock_result = registry[name](**(args or {}))
+            if isinstance(mock_result, dict):
+                result = mock_result
         self._steps.append(
             Step(type="tool_call", name=name, args=args, result=result, metadata=metadata)
         )
