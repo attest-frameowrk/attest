@@ -21,8 +21,9 @@ import (
 )
 
 const (
-	engineVersion   = "0.3.0"
-	protocolVersion = 1
+	engineVersion      = "0.3.0"
+	protocolVersion    = 1
+	minProtocolVersion = 1
 )
 
 // RegisterBuiltinHandlers registers the built-in JSON-RPC handlers on s.
@@ -248,13 +249,22 @@ func handleInitialize(caps []string) Handler {
 			)
 		}
 
-		if p.ProtocolVersion != protocolVersion {
+		if p.ProtocolVersion > protocolVersion {
 			return nil, types.NewRPCError(
 				types.ErrSessionError,
-				fmt.Sprintf("protocol version %d not supported; engine supports version %d", p.ProtocolVersion, protocolVersion),
+				fmt.Sprintf("protocol version %d not supported; engine supports versions %d–%d", p.ProtocolVersion, minProtocolVersion, protocolVersion),
 				types.ErrTypeSessionError,
 				false,
-				"Upgrade the engine binary or downgrade the SDK protocol_version",
+				"Upgrade the engine binary to support this SDK's protocol version",
+			)
+		}
+		if p.ProtocolVersion < minProtocolVersion {
+			return nil, types.NewRPCError(
+				types.ErrSessionError,
+				fmt.Sprintf("protocol version %d is too old; engine supports versions %d–%d", p.ProtocolVersion, minProtocolVersion, protocolVersion),
+				types.ErrTypeSessionError,
+				false,
+				"Upgrade the SDK to a newer protocol version",
 			)
 		}
 
@@ -285,7 +295,7 @@ func handleInitialize(caps []string) Handler {
 			Missing:               missing,
 			Compatible:            compatible,
 			Encoding:              "json",
-			MaxConcurrentRequests: 64,
+			MaxConcurrentRequests: 1,
 			MaxTraceSizeBytes:     10 * 1024 * 1024,
 			MaxStepsPerTrace:      10000,
 		}, nil
