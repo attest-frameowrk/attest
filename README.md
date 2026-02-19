@@ -4,7 +4,7 @@
 
 Attest is an open-source testing framework purpose-built for AI agents and LLM-powered systems. It treats deterministic assertions as first-class citizens alongside probabilistic evaluation — because 70% of your agent's testable surface is deterministic.
 
-> **Status:** v0.3.0 — Layers 1–6 + simulation runtime + multi-agent trace trees. Engine, Python SDK, ONNX embeddings, LLM judge, simulated users, fault injection, and cross-agent assertions shipped.
+> **Status:** v0.3.0 — Layers 1–7, Python SDK, TypeScript SDK, simulation runtime, multi-agent trace trees. Engine, ONNX embeddings, LLM judge, simulated users, fault injection, cross-agent assertions, and choreography validation shipped.
 
 ---
 
@@ -25,28 +25,37 @@ Layer 7: Trace Tree (Multi-Agent)  — free, instant, deterministic
 ## What It Looks Like
 
 ```python
-import attest
-from attest import expect
+from attest import agent, expect
 
-class TestRefundAgent(attest.AgentTest):
-    async def test_processes_eligible_refund(self):
-        result = await self.agent.run("Refund order ORD-123456")
+@agent("refund-agent")
+def refund_agent(builder, order_id):
+    builder.add_tool_call("lookup_order", args={"order_id": order_id},
+                          result={"status": "delivered", "amount": 89.99})
+    builder.add_tool_call("process_refund", args={"order_id": order_id},
+                          result={"refund_id": "RFD-001"})
+    builder.set_metadata(cost_usd=0.005, total_tokens=150, latency_ms=1200)
+    return {"message": "Your refund of $89.99 has been processed.",
+            "structured": {"refund_id": "RFD-001"}}
 
-        # Layer 1 — schema validation (free, instant)
-        expect(result).tool_calls_to_match_schema()
+def test_refund(attest):
+    result = refund_agent(order_id="ORD-123456")
 
-        # Layer 2 — constraint checks (free, instant)
-        expect(result).to_cost_less_than(0.05)
+    chain = (
+        expect(result)
+        # Layer 1 — schema (free, instant)
+        .output_matches_schema({"type": "object", "required": ["refund_id"]})
+        # Layer 2 — constraints (free, instant)
+        .cost_under(0.05)
+        # Layer 3 — trace (free, instant)
+        .tools_called_in_order(["lookup_order", "process_refund"])
+        # Layer 4 — content (free, instant)
+        .output_contains("refund")
+        .output_not_contains("sorry")
+        # Layer 6 — LLM judge (only when needed)
+        .passes_judge("Is the response helpful and accurate?")
+    )
 
-        # Layer 3 — trace inspection (free, instant)
-        expect(result).to_call_tools_in_order(["lookup_order", "process_refund"])
-
-        # Layer 4 — content matching (free, instant)
-        expect(result).output_to_contain("refund")
-        expect(result).output_not_to_contain("sorry")
-
-        # Layer 6 — LLM-as-judge (only when needed)
-        expect(result).to_pass_judge("Is the response helpful and accurate?")
+    attest.evaluate(chain)
 ```
 
 ## Architecture
@@ -70,6 +79,7 @@ SDK (Python/TS/Go) ──stdin/stdout──▶ Engine Process (Go)
 - **7-layer assertion pipeline** — graduated from free/deterministic to paid/probabilistic
 - **Soft failure budgets** — scores between 0.5–0.8 warn without blocking CI
 - **Cost as a test metric** — assert on token usage, API cost, and latency
+- **Python & TypeScript SDKs** — `attest-ai` (PyPI) + `@attest-ai/core` / `@attest-ai/vitest` (npm)
 - **Framework-agnostic** — SDK adapters for OpenAI, Anthropic, Gemini, Ollama, OTel; engine judge: OpenAI (Anthropic, Gemini, Ollama planned v0.4)
 - **Local ONNX embeddings** — optional all-MiniLM-L6-v2 provider, zero API cost for Layer 5
 - **Judge meta-evaluation** — 3x judge runs with median scoring and variance detection
@@ -103,8 +113,8 @@ attest/
 ### Prerequisites
 
 - Go 1.24+
-- Python 3.10+
-- [uv](https://docs.astral.sh/uv/getting-started/installation/)
+- Python 3.10+ with [uv](https://docs.astral.sh/uv/getting-started/installation/)
+- Node.js 18+ with [pnpm](https://pnpm.io/installation) (for TypeScript SDK)
 
 ### Build and Test
 
@@ -123,6 +133,21 @@ make test
 # attest-engine 0.3.0
 ```
 
+### TypeScript SDK
+
+```bash
+cd sdks/typescript
+pnpm install
+pnpm build
+pnpm test
+```
+
+Install in your project:
+
+```bash
+pnpm add @attest-ai/core @attest-ai/vitest
+```
+
 ## Roadmap
 
 | Phase | Version | Status       | Description                                                          |
@@ -130,7 +155,7 @@ make test
 | 0     | —       | **Complete** | Repository scaffolding, toolchain, protocol spec                     |
 | 1     | v0.1    | **Complete** | Go engine (Layers 1–4), Python SDK, pytest plugin, 4 LLM adapters    |
 | 2     | v0.2    | **Complete** | Layers 5–6 (embeddings, LLM-as-judge), soft failures, CI integration |
-| 3     | v0.3    | **In Progress** | Simulation runtime, multi-agent testing (**done**); TypeScript SDK (pending) |
+| 3     | v0.3    | **Complete** | Simulation runtime, multi-agent testing, TypeScript SDK, cross-agent choreography |
 | 4     | v0.4    | Planned      | Continuous eval, plugin system, LangChain/LlamaIndex adapters        |
 | 5     | v0.5    | Planned      | Go SDK, Attest Cloud MVP, benchmark registry                         |
 
