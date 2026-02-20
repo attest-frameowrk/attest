@@ -13,7 +13,7 @@ import (
 	"github.com/attest-ai/attest/engine/internal/server"
 )
 
-const version = "0.2.0"
+const version = "0.3.0"
 
 func main() {
 	if len(os.Args) > 1 {
