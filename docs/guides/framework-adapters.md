@@ -1,42 +1,120 @@
-# Framework Adapters Guide
+# Adapter Guide
 
-Framework adapters bridge Attest with agent orchestration frameworks, enabling trace capture without manual `TraceBuilder` instrumentation.
+Attest adapters capture LLM interactions as `Trace` objects. Two adapter tiers exist, backed by a shared class hierarchy.
 
-## Provider Adapters vs Framework Adapters
+## Adapter Architecture
 
-Attest uses a two-tier adapter architecture:
+```
+BaseAdapter                          ← shared utilities
+├── BaseProviderAdapter              ← template method for single LLM calls
+│   ├── OpenAIAdapter
+│   ├── AnthropicAdapter
+│   ├── GeminiAdapter
+│   └── OllamaAdapter
+├── GoogleADKAdapter                 ← framework: ADK event stream
+├── LangChainCallbackHandler         ← framework: LangChain callbacks
+├── LlamaIndexInstrumentationHandler ← framework: LlamaIndex dispatcher
+├── OTelAdapter                      ← framework: OpenTelemetry spans
+└── ManualAdapter                    ← utility: builder function
+```
 
-**Provider adapters** capture single LLM call boundaries. They wrap one request/response cycle for a model provider — OpenAI, Anthropic, Gemini, or Ollama. Use them when you call a model directly and want a `Trace` for that single call.
+**Provider adapters** capture a single LLM request/response cycle. They inherit `BaseProviderAdapter` and override 4 extraction methods.
 
-**Framework adapters** capture agent orchestration. They consume the event stream or callback lifecycle produced by an orchestration framework — LangChain, Google ADK, LlamaIndex — and build a `Trace` that includes all LLM calls, tool calls, and sub-agent delegations that occurred during a complete agent run.
+**Framework adapters** capture a complete agent run (multiple LLM calls, tool calls, sub-agent delegations). They inherit `BaseAdapter` for shared utilities but implement their own capture mechanics.
 
 ```
 ProviderAdapter    — one LLM call → one Trace
 FrameworkAdapter   — one agent run (N LLM calls, M tool calls) → one Trace
 ```
 
-Both implement formal Protocols defined in `attest.adapters`:
+## Provider Adapters
+
+### OpenAI
 
 ```python
-from attest.adapters import ProviderAdapter, FrameworkAdapter
+from openai import OpenAI
+from attest import OpenAIAdapter, AgentResult, expect
+
+client = OpenAI()
+adapter = OpenAIAdapter(agent_id="assistant")
+
+response = client.chat.completions.create(
+    model="gpt-4.1",
+    messages=[{"role": "user", "content": "Explain recursion"}],
+)
+
+trace = adapter.trace_from_response(
+    response,
+    input_messages=[{"role": "user", "content": "Explain recursion"}],
+)
+
+result = AgentResult(trace=trace)
+expect(result).output_contains("recursion").cost_under(0.10)
 ```
 
-## LangChain Adapter
+### Anthropic
 
-The `LangChainAdapter` wraps LangChain's callback system. It attaches a `LangChainCallbackHandler` to your agent invocation and builds a `Trace` on exit.
+```python
+from anthropic import Anthropic
+from attest import AnthropicAdapter, AgentResult, expect
 
-### Installation
+client = Anthropic()
+adapter = AnthropicAdapter(agent_id="claude-agent")
+
+response = client.messages.create(
+    model="claude-sonnet-4-20250514",
+    max_tokens=1024,
+    messages=[{"role": "user", "content": "Explain recursion"}],
+)
+
+trace = adapter.trace_from_response(
+    response,
+    input_messages=[{"role": "user", "content": "Explain recursion"}],
+)
+```
+
+### Gemini
+
+```python
+from attest import GeminiAdapter
+
+adapter = GeminiAdapter(agent_id="gemini-agent")
+
+trace = adapter.trace_from_response(
+    response,
+    input_messages=[{"role": "user", "content": "Explain recursion"}],
+    model="gemini-2.0-flash",  # Gemini model passed via metadata
+)
+```
+
+> **Migration note:** The `input_text` parameter is deprecated. Use `input_messages=[{"role": "user", "content": text}]` instead.
+
+### Ollama
+
+```python
+from attest import OllamaAdapter
+
+adapter = OllamaAdapter(agent_id="local-model")
+
+# Ollama returns a dict, not an object
+trace = adapter.trace_from_response(
+    response_dict,
+    input_messages=[{"role": "user", "content": "Hello"}],
+)
+```
+
+## Framework Adapters
+
+### LangChain
 
 ```bash
 uv add 'attest-ai[langchain]'
 ```
 
-### Basic Usage
+**Context manager usage:**
 
 ```python
-from attest.adapters.langchain import LangChainAdapter
-from attest.result import AgentResult
-from attest import expect
+from attest import LangChainAdapter, AgentResult, expect
 
 adapter = LangChainAdapter(agent_id="research-agent")
 
@@ -47,15 +125,22 @@ with adapter.capture() as handler:
     )
 
 trace = adapter.trace
-agent_result = AgentResult(trace=trace)
-
-expect(agent_result).output_contains("summary")
-expect(agent_result).tool_called("search_web")
+expect(AgentResult(trace=trace)).tool_called("search_web")
 ```
 
-### What Gets Captured
+**Direct handler usage:**
 
-The handler intercepts these LangChain callbacks:
+```python
+from attest import LangChainCallbackHandler
+
+handler = LangChainCallbackHandler(agent_id="my-agent")
+result = agent.invoke(input_data, config={"callbacks": [handler]})
+trace = handler.build_trace()
+```
+
+`build_trace()` raises `RuntimeError` if called more than once.
+
+**Callback mapping:**
 
 | Callback | Captured as |
 |---|---|
@@ -65,68 +150,31 @@ The handler intercepts these LangChain callbacks:
 | `on_tool_start` / `on_tool_end` | `tool_call` step with args and result |
 | `on_tool_error` | `tool_call` step with error field |
 
-### Direct Handler Usage
-
-Use `LangChainCallbackHandler` directly when you need the handler reference before entering a context manager:
-
-```python
-from attest.adapters.langchain import LangChainCallbackHandler
-
-handler = LangChainCallbackHandler(agent_id="my-agent")
-result = agent.invoke(input_data, config={"callbacks": [handler]})
-trace = handler.build_trace()
-```
-
-`build_trace()` raises `RuntimeError` if called more than once on the same handler instance.
-
-## Google ADK Adapter
-
-The `GoogleADKAdapter` consumes the async event stream from an ADK `Runner` and maps ADK event types to Attest step types.
-
-### Installation
+### Google ADK
 
 ```bash
 uv add 'attest-ai[google-adk]'
 ```
 
-### Async Capture
+**Async capture:**
 
 ```python
-import asyncio
-from google.adk.runners import Runner
-from attest.adapters.google_adk import GoogleADKAdapter
-from attest.result import AgentResult
-from attest import expect
+from attest import GoogleADKAdapter, AgentResult, expect
 
-async def run_and_test():
-    runner = Runner(
-        agent=root_agent,
-        app_name="my-app",
-        session_service=session_service,
-    )
+adapter = GoogleADKAdapter(agent_id="root-agent")
+trace = await adapter.capture_async(
+    runner=runner,
+    user_id="user-123",
+    session_id="session-abc",
+    message="What is the weather in Paris?",
+)
 
-    adapter = GoogleADKAdapter(agent_id="root-agent")
-    trace = await adapter.capture_async(
-        runner=runner,
-        user_id="user-123",
-        session_id="session-abc",
-        message="What is the weather in Paris?",
-    )
-
-    result = AgentResult(trace=trace)
-    expect(result).tool_called("get_weather")
-    expect(result).output_contains("Paris")
-
-asyncio.run(run_and_test())
+expect(AgentResult(trace=trace)).tool_called("get_weather")
 ```
 
-### From Pre-collected Events
-
-When you already hold ADK events (for example, from a test fixture or replay), use the class method directly:
+**From pre-collected events:**
 
 ```python
-from attest.adapters.google_adk import GoogleADKAdapter
-
 trace = GoogleADKAdapter.from_events(
     events=collected_events,
     agent_id="root-agent",
@@ -134,9 +182,9 @@ trace = GoogleADKAdapter.from_events(
 )
 ```
 
-### Event Mapping
+**Event mapping:**
 
-| ADK Event field | Captured as |
+| ADK event field | Captured as |
 |---|---|
 | `actions.tool_calls` | `tool_call` steps (args) |
 | `actions.tool_results` | `tool_call` steps (result) |
@@ -145,25 +193,85 @@ trace = GoogleADKAdapter.from_events(
 | `is_final_response()` + `content.parts[].text` | agent output |
 | `llm_response.model_version` | model metadata (first non-None) |
 
-## Combining Provider and Framework Adapters
+### LlamaIndex
 
-A framework adapter already captures LLM calls internally. If you need a `Trace` for both the raw provider call and the orchestrated run, use them independently and assert on each:
+```bash
+uv add 'attest-ai[llamaindex]'
+```
+
+**Context manager usage:**
 
 ```python
-from attest.adapters.openai import OpenAIAdapter
-from attest.adapters.langchain import LangChainAdapter
-from attest.result import AgentResult
-from attest import expect
-from openai import OpenAI
+from attest import LlamaIndexInstrumentationHandler, AgentResult, expect
+
+with LlamaIndexInstrumentationHandler(agent_id="rag-agent") as handler:
+    response = query_engine.query("What is the capital of France?")
+
+trace = handler.build_trace(
+    query="What is the capital of France?",
+    response=str(response),
+)
+
+expect(AgentResult(trace=trace)).output_contains("Paris")
+```
+
+**Manual attach/detach:**
+
+```python
+handler = LlamaIndexInstrumentationHandler(agent_id="rag-agent")
+handler.attach()
+
+# ... run queries ...
+
+handler.detach()
+trace = handler.build_trace(query="...", response="...")
+```
+
+**Event mapping:**
+
+| LlamaIndex event | Captured as |
+|---|---|
+| `LLMChatStartEvent` | Buffers model name |
+| `LLMChatEndEvent` | `llm_call` step with tokens and tool calls |
+| `RetrievalStartEvent` | Buffers query string |
+| `RetrievalEndEvent` | `retrieval` step with nodes and scores |
+
+### OpenTelemetry
+
+```bash
+uv add 'attest-ai[otel]'
+```
+
+**From collected spans:**
+
+```python
+from attest import OTelAdapter
+
+trace = OTelAdapter.from_spans(
+    spans=collected_spans,
+    agent_id="my-agent",
+)
+```
+
+**Span classification:**
+
+| Span attribute | Classified as |
+|---|---|
+| `gen_ai.operation.name` == "chat" / "completion" | `llm_call` step |
+| `gen_ai.operation.name` == "tool" or `gen_ai.tool.name` present | `tool_call` step |
+| Other spans | Skipped |
+
+The adapter reads `gen_ai.*` semantic conventions for model, tokens, completion text, and tool parameters.
+
+## Combining Provider and Framework Adapters
+
+A framework adapter captures LLM calls internally. Use both tiers only when you need separate assertions at each level:
+
+```python
+from attest import OpenAIAdapter, LangChainAdapter, AgentResult, expect
 
 # Provider-level: assert on a raw OpenAI call
-client = OpenAI()
-response = client.chat.completions.create(
-    model="gpt-4.1",
-    messages=[{"role": "user", "content": "Hello"}],
-)
-provider_adapter = OpenAIAdapter(agent_id="raw-call")
-raw_trace = provider_adapter.trace_from_response(
+raw_trace = OpenAIAdapter(agent_id="raw-call").trace_from_response(
     response,
     input_messages=[{"role": "user", "content": "Hello"}],
 )
@@ -174,15 +282,62 @@ lc_adapter = LangChainAdapter(agent_id="orchestrated-run")
 with lc_adapter.capture() as handler:
     agent.invoke({"input": "Hello"}, config={"callbacks": [handler]})
 
-framework_trace = lc_adapter.trace
-expect(AgentResult(trace=framework_trace)).tool_called("lookup_user")
+expect(AgentResult(trace=lc_adapter.trace)).tool_called("lookup_user")
 ```
 
-In the common case, one adapter is sufficient. Use both only when you need separate assertions at each level.
+## Writing a Custom Provider Adapter
 
-## Writing a Custom FrameworkAdapter
+Inherit `BaseProviderAdapter` and implement 4 extraction methods. The base class handles timestamp resolution, builder creation, LLM step construction, and metadata assembly.
 
-Implement the `FrameworkAdapter` Protocol to connect Attest to any orchestration framework:
+```python
+from __future__ import annotations
+
+from typing import Any
+
+from attest.adapters import BaseProviderAdapter
+
+
+class MistralAdapter(BaseProviderAdapter):
+    """Adapter for Mistral AI chat completions."""
+
+    def _extract_completion(self, response: Any) -> str:
+        return response.choices[0].message.content or ""
+
+    def _extract_model(self, response: Any, **metadata: Any) -> str | None:
+        return getattr(response, "model", None)
+
+    def _extract_total_tokens(self, response: Any) -> int | None:
+        if hasattr(response, "usage") and response.usage:
+            return response.usage.total_tokens
+        return None
+
+    def _extract_tool_calls(self, response: Any) -> list[dict[str, Any]]:
+        message = response.choices[0].message
+        if not hasattr(message, "tool_calls") or not message.tool_calls:
+            return []
+        return [
+            {"name": tc.function.name, "args": {"arguments": tc.function.arguments}}
+            for tc in message.tool_calls
+        ]
+```
+
+**Optional override — `_build_output`:** Customize the trace output dict (default: `{"message": completion_text}`).
+
+```python
+def _build_output(
+    self, response: Any, completion_text: str, **metadata: Any
+) -> dict[str, Any]:
+    return {
+        "message": completion_text,
+        "structured": metadata.get("structured_output", {}),
+    }
+```
+
+**Optional override — `_extract_input`:** Customize input format (default: `{"messages": input_messages}`).
+
+## Writing a Custom Framework Adapter
+
+Inherit `BaseAdapter` for shared utilities. Framework adapters have diverse input mechanics, so there is no template method — implement your own capture method.
 
 ```python
 from __future__ import annotations
@@ -190,70 +345,60 @@ from __future__ import annotations
 from typing import Any
 
 from attest._proto.types import Trace
-from attest.adapters import FrameworkAdapter
-from attest.trace import TraceBuilder
+from attest.adapters import BaseAdapter
 
 
-class MyFrameworkAdapter:
-    """Adapter for MyFramework event streams."""
+class CrewAIAdapter(BaseAdapter):
+    """Adapter for CrewAI task execution."""
 
-    def __init__(self, agent_id: str | None = None) -> None:
-        self._agent_id = agent_id
-
-    def trace_from_events(
-        self,
-        events: list[Any],
-        **metadata: Any,
-    ) -> Trace:
-        builder = TraceBuilder(agent_id=self._agent_id)
-
+    def trace_from_crew(self, crew_output: Any, **metadata: Any) -> Trace:
+        builder = self._create_builder()
         total_tokens = 0
-        output_text = ""
 
-        for event in events:
-            event_type = getattr(event, "type", None)
+        for task_output in crew_output.tasks_output:
+            agent_name = task_output.agent
+            completion = task_output.raw
 
-            if event_type == "tool_call":
+            builder.add_llm_call(
+                name=agent_name,
+                result={"completion": completion},
+            )
+
+            for tool_use in getattr(task_output, "tool_uses", []):
                 builder.add_tool_call(
-                    name=event.tool_name,
-                    args=event.args,
-                    result=event.result,
+                    name=tool_use.tool_name,
+                    args=tool_use.args,
+                    result=tool_use.result,
+                    agent_id=agent_name,
                 )
-            elif event_type == "llm_call":
-                builder.add_llm_call(
-                    name=event.model,
-                    result={"completion": event.completion},
-                )
-                total_tokens += getattr(event, "tokens", 0)
-            elif event_type == "final_output":
-                output_text = event.text
+                total_tokens += getattr(tool_use, "tokens", 0)
 
-        builder.set_output(message=output_text)
+        builder.set_output(message=crew_output.raw)
         builder.set_metadata(
             total_tokens=total_tokens if total_tokens > 0 else None,
-            **metadata,
+            cost_usd=metadata.get("cost_usd"),
         )
 
         return builder.build()
-
-
-# Verify the class satisfies the Protocol (structural check, not inheritance)
-def _check() -> None:
-    _: FrameworkAdapter = MyFrameworkAdapter()
 ```
 
-The Protocol is structural — no inheritance required. Any class with a matching `trace_from_events` signature satisfies `FrameworkAdapter`.
+**Shared utilities from `BaseAdapter`:**
 
-For `ProviderAdapter`, implement `trace_from_response(response, input_messages, **metadata) -> Trace` with the same pattern.
+| Method | Purpose |
+|---|---|
+| `self._create_builder()` | Returns a `TraceBuilder` pre-configured with `agent_id` |
+| `self._now_ms()` | Current wall-clock time in milliseconds |
+| `self._resolve_timestamps(started, ended)` | Fills `None` values with current time |
 
-## Protocol Reference
+## Base Class Reference
 
 ```python
-from attest.adapters import TraceAdapter, ProviderAdapter, FrameworkAdapter
+from attest.adapters import BaseAdapter, BaseProviderAdapter
 ```
 
-| Protocol | Method | Use case |
+| Class | Use case | Abstract methods |
 |---|---|---|
-| `TraceAdapter` | `capture(*args, **kwargs) -> Trace` | Generic capture (backward compat) |
-| `ProviderAdapter` | `trace_from_response(response, input_messages, **metadata) -> Trace` | Single LLM call |
-| `FrameworkAdapter` | `trace_from_events(events, **metadata) -> Trace` | Agent orchestration run |
+| `BaseAdapter` | Framework adapters, custom adapters | None (concrete) |
+| `BaseProviderAdapter` | Single LLM call adapters | `_extract_completion`, `_extract_model`, `_extract_total_tokens`, `_extract_tool_calls` |
+
+The legacy `TraceAdapter`, `ProviderAdapter`, and `FrameworkAdapter` Protocols remain exported for backward compatibility. New adapters should use the class hierarchy.
