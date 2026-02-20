@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from attest._proto.types import (
     STATUS_HARD_FAIL,
@@ -11,6 +12,9 @@ from attest._proto.types import (
     AssertionResult,
     Trace,
 )
+
+if TYPE_CHECKING:
+    from attest.trace_tree import TraceTree
 
 
 @dataclass
@@ -51,3 +55,8 @@ class AgentResult:
     def fail_count(self) -> int:
         """Number of failing assertions."""
         return len(self.assertion_results) - self.pass_count
+
+    def trace_tree(self) -> TraceTree:
+        """Build a TraceTree from this result's trace."""
+        from attest.trace_tree import TraceTree
+        return TraceTree(root=self.trace)

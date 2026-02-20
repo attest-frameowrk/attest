@@ -1,0 +1,17 @@
+{
+  "name": "@attest-ai/quickstart-example",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@attest-ai/core": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^3.0.0",
+    "typescript": "^5.7.0",
+    "@types/node": "^25.3.0"
+  }
+}

@@ -1,0 +1,54 @@
+{
+  "name": "@attest-ai/vitest",
+  "version": "0.3.0",
+  "description": "Attest vitest integration — global setup, fixtures, cost reporter, tier filtering",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./setup": {
+      "import": "./dist/plugin.js",
+      "types": "./dist/plugin.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "echo 'no unit tests — vitest plugin is tested via integration'"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/attest-frameowrk/attest.git",
+    "directory": "sdks/typescript/packages/vitest"
+  },
+  "license": "MIT",
+  "keywords": [
+    "ai",
+    "testing",
+    "vitest",
+    "agent",
+    "attest"
+  ],
+  "peerDependencies": {
+    "@attest-ai/core": ">=0.3.0",
+    "vitest": ">=2.0.0"
+  },
+  "devDependencies": {
+    "@attest-ai/core": "workspace:*",
+    "@types/node": "^25.3.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}

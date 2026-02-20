@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -88,7 +89,9 @@ func (e *JudgeEvaluator) Evaluate(trace *types.Trace, assertion *types.Assertion
 	}
 
 	// Build LLM request
-	ctx := context.Background()
+	timeoutSecs := judgeTimeoutSeconds()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutSecs)*time.Second)
+	defer cancel()
 	wrapped := judge.WrapAgentOutput(targetStr)
 	userContent := wrapped
 	if spec.Criteria != "" {
@@ -129,6 +132,20 @@ func (e *JudgeEvaluator) buildResult(
 		DurationMS:  durationMS,
 		RequestID:   assertion.RequestID,
 	}
+}
+
+// judgeTimeoutSeconds reads the judge evaluation timeout from ATTEST_JUDGE_TIMEOUT_S.
+// Defaults to 30 seconds if unset or invalid.
+func judgeTimeoutSeconds() int {
+	v := os.Getenv("ATTEST_JUDGE_TIMEOUT_S")
+	if v == "" {
+		return 30
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n <= 0 {
+		return 30
+	}
+	return n
 }
 
 // metaEvalEnabled returns true if meta-evaluation is requested via spec or env var.

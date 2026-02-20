@@ -1,31 +1,35 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
+	"time"
 
 	"github.com/attest-ai/attest/engine/internal/assertion"
 	"github.com/attest-ai/attest/engine/internal/assertion/embedding"
 	"github.com/attest-ai/attest/engine/internal/assertion/judge"
 	"github.com/attest-ai/attest/engine/internal/cache"
 	"github.com/attest-ai/attest/engine/internal/llm"
+	"github.com/attest-ai/attest/engine/internal/simulation"
 	"github.com/attest-ai/attest/engine/internal/trace"
 	"github.com/attest-ai/attest/engine/pkg/types"
 )
 
 const (
-	engineVersion   = "0.2.0"
-	protocolVersion = 1
+	engineVersion      = "0.3.0"
+	protocolVersion    = 1
+	minProtocolVersion = 1
 )
 
 // RegisterBuiltinHandlers registers the built-in JSON-RPC handlers on s.
 // It reads ATTEST_* env vars to configure Layer 5/6 providers and caches.
 func RegisterBuiltinHandlers(s *Server) {
-	opts, caps := buildRegistryOptions(s.logger)
+	opts, caps, judgeProvider := buildRegistryOptions(s.logger)
 	registry := assertion.NewRegistry(opts...)
 	pipeline := assertion.NewPipeline(registry)
 
@@ -33,13 +37,17 @@ func RegisterBuiltinHandlers(s *Server) {
 	s.RegisterHandler("shutdown", handleShutdown)
 	s.RegisterHandler("evaluate_batch", handleEvaluateBatch(pipeline))
 	s.RegisterHandler("submit_plugin_result", handleSubmitPluginResult())
+	s.RegisterHandler("validate_trace_tree", handleValidateTraceTree())
+	if judgeProvider != nil {
+		s.RegisterHandler("generate_user_message", handleGenerateUserMessage(judgeProvider))
+	}
 }
 
 // buildRegistryOptions reads env vars and constructs RegistryOption values
 // for Layer 5 (embedding) and Layer 6 (judge) evaluators. Returns the
-// options and the list of supported capabilities.
-func buildRegistryOptions(logger *slog.Logger) ([]assertion.RegistryOption, []string) {
-	caps := []string{"layers_1_4"}
+// options, the list of supported capabilities, and the judge provider (may be nil).
+func buildRegistryOptions(logger *slog.Logger) ([]assertion.RegistryOption, []string, llm.Provider) {
+	caps := []string{"layers_1_4", "trace_tree"}
 	var opts []assertion.RegistryOption
 
 	// ── Layer 5: Embedding ──
@@ -101,7 +109,12 @@ func buildRegistryOptions(logger *slog.Logger) ([]assertion.RegistryOption, []st
 	}
 
 	// ── Layer 6: LLM Judge ──
-	judgeProvider, providerName := buildJudgeProvider(logger)
+	judgeProvider, providerName, judgeErr := buildJudgeProvider(logger)
+	if judgeErr != nil {
+		logger.Error("judge provider configuration error", "err", judgeErr)
+		fmt.Fprintf(os.Stderr, "fatal: %v\n", judgeErr)
+		os.Exit(1)
+	}
 	if judgeProvider != nil {
 		rubrics := judge.NewRubricRegistry()
 
@@ -119,58 +132,76 @@ func buildRegistryOptions(logger *slog.Logger) ([]assertion.RegistryOption, []st
 			}
 		}
 		opts = append(opts, assertion.WithJudge(judgeProvider, rubrics, jCache))
-		caps = append(caps, "llm_judge")
+		caps = append(caps, "llm_judge", "simulation")
 		logger.Info("layer 6 (judge) enabled", "provider", providerName)
 	}
 
-	if len(caps) > 1 {
+	if embedder != nil || judgeProvider != nil {
 		caps = append(caps, "layers_5_6")
 	}
 
-	return opts, caps
+	return opts, caps, judgeProvider
 }
 
 // buildJudgeProvider selects and constructs an LLM provider for judging.
 // Reads ATTEST_JUDGE_PROVIDER and corresponding API keys.
-func buildJudgeProvider(logger *slog.Logger) (llm.Provider, string) {
+// Returns an error if the provider is explicitly set to an unimplemented or unknown value.
+func buildJudgeProvider(logger *slog.Logger) (llm.Provider, string, error) {
 	preferred := os.Getenv("ATTEST_JUDGE_PROVIDER")
 	model := os.Getenv("ATTEST_JUDGE_MODEL")
 
-	// Try preferred provider first, then fall through in priority order
-	providers := []string{"openai", "anthropic", "gemini", "ollama"}
+	// If explicitly set, validate before attempting construction.
 	if preferred != "" {
-		providers = []string{preferred}
-	}
-
-	for _, name := range providers {
-		switch name {
+		switch preferred {
 		case "openai":
-			key := os.Getenv("ATTEST_OPENAI_API_KEY")
-			if key == "" {
-				continue
-			}
-			p, err := llm.NewOpenAIProvider(key, model, "")
-			if err != nil {
-				logger.Warn("failed to create OpenAI judge provider", "err", err)
-				continue
-			}
-			return p, "openai"
-
-		case "anthropic":
-			// Anthropic provider not implemented yet in llm package — skip
-			continue
-
-		case "gemini":
-			// Gemini provider not implemented yet in llm package — skip
-			continue
-
-		case "ollama":
-			// Ollama provider not implemented yet in llm package — skip
-			continue
+			// handled below
+		case "anthropic", "gemini", "ollama":
+			return nil, "", fmt.Errorf(
+				"ATTEST_JUDGE_PROVIDER=%q is not yet implemented; supported: openai",
+				preferred,
+			)
+		default:
+			return nil, "", fmt.Errorf(
+				"ATTEST_JUDGE_PROVIDER=%q is unknown; supported: openai",
+				preferred,
+			)
 		}
 	}
 
-	return nil, ""
+	// Try OpenAI (the only implemented provider).
+	key := os.Getenv("ATTEST_OPENAI_API_KEY")
+	if key == "" {
+		return nil, "", nil
+	}
+
+	p, err := llm.NewOpenAIProvider(key, model, "")
+	if err != nil {
+		logger.Warn("failed to create OpenAI judge provider", "err", err)
+		return nil, "", nil
+	}
+
+	// Wrap with rate limiter.
+	rlCfg := buildRateLimiterConfig()
+	rlp, rlErr := llm.NewRateLimitedProvider(p, rlCfg)
+	if rlErr != nil {
+		logger.Warn("rate limiter init failed, using bare provider", "err", rlErr)
+		return p, "openai", nil
+	}
+	logger.Info("judge provider rate limiter configured", "rpm", rlCfg.RequestsPerMinute, "burst", rlCfg.Burst)
+	return rlp, "openai", nil
+}
+
+// buildRateLimiterConfig reads ATTEST_JUDGE_RPM and ATTEST_JUDGE_BURST env vars,
+// falling back to DefaultRateLimiterConfig values.
+func buildRateLimiterConfig() llm.RateLimiterConfig {
+	cfg := llm.DefaultRateLimiterConfig
+	if rpm := envInt("ATTEST_JUDGE_RPM", 0); rpm > 0 {
+		cfg.RequestsPerMinute = float64(rpm)
+	}
+	if burst := envInt("ATTEST_JUDGE_BURST", 0); burst > 0 {
+		cfg.Burst = burst
+	}
+	return cfg
 }
 
 // cacheDirectory returns the cache directory from env or default.
@@ -218,13 +249,22 @@ func handleInitialize(caps []string) Handler {
 			)
 		}
 
-		if p.ProtocolVersion != protocolVersion {
+		if p.ProtocolVersion > protocolVersion {
 			return nil, types.NewRPCError(
 				types.ErrSessionError,
-				fmt.Sprintf("protocol version %d not supported; engine supports version %d", p.ProtocolVersion, protocolVersion),
+				fmt.Sprintf("protocol version %d not supported; engine supports versions %d–%d", p.ProtocolVersion, minProtocolVersion, protocolVersion),
 				types.ErrTypeSessionError,
 				false,
-				"Upgrade the engine binary or downgrade the SDK protocol_version",
+				"Upgrade the engine binary to support this SDK's protocol version",
+			)
+		}
+		if p.ProtocolVersion < minProtocolVersion {
+			return nil, types.NewRPCError(
+				types.ErrSessionError,
+				fmt.Sprintf("protocol version %d is too old; engine supports versions %d–%d", p.ProtocolVersion, minProtocolVersion, protocolVersion),
+				types.ErrTypeSessionError,
+				false,
+				"Upgrade the SDK to a newer protocol version",
 			)
 		}
 
@@ -255,7 +295,7 @@ func handleInitialize(caps []string) Handler {
 			Missing:               missing,
 			Compatible:            compatible,
 			Encoding:              "json",
-			MaxConcurrentRequests: 64,
+			MaxConcurrentRequests: 1,
 			MaxTraceSizeBytes:     10 * 1024 * 1024,
 			MaxStepsPerTrace:      10000,
 		}, nil
@@ -363,5 +403,115 @@ func handleSubmitPluginResult() Handler {
 		session.IncrementAssertions(1)
 
 		return &types.SubmitPluginResultResponse{Accepted: true}, nil
+	}
+}
+
+func handleValidateTraceTree() Handler {
+	return func(session *Session, params json.RawMessage) (any, *types.RPCError) {
+		if session.State() != StateInitialized {
+			return nil, types.NewRPCError(
+				types.ErrSessionError,
+				"validate_trace_tree called before initialize",
+				types.ErrTypeSessionError,
+				false,
+				"call initialize first to establish a session",
+			)
+		}
+
+		var p types.ValidateTraceTreeParams
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, types.NewRPCError(
+				types.ErrInvalidTrace,
+				"invalid validate_trace_tree params",
+				types.ErrTypeInvalidTrace,
+				false,
+				err.Error(),
+			)
+		}
+
+		result := &types.ValidateTraceTreeResult{}
+
+		if err := trace.ValidateTraceTree(&p.Trace); err != nil {
+			result.Valid = false
+			result.Errors = []string{err.Error()}
+		} else {
+			result.Valid = true
+		}
+
+		result.Depth = trace.TreeDepth(&p.Trace)
+		agentIDs := trace.AgentIDs(&p.Trace)
+		result.AgentIDs = agentIDs
+		result.AgentCount = len(agentIDs)
+
+		totalTokens, totalCostUSD, totalLatencyMS, _ := trace.AggregateMetadata(&p.Trace)
+		result.AggregateTokens = totalTokens
+		result.AggregateCostUSD = totalCostUSD
+		result.AggregateLatencyMS = totalLatencyMS
+
+		return result, nil
+	}
+}
+
+func handleGenerateUserMessage(provider llm.Provider) Handler {
+	return func(session *Session, params json.RawMessage) (any, *types.RPCError) {
+		if session.State() != StateInitialized {
+			return nil, types.NewRPCError(
+				types.ErrSessionError,
+				"generate_user_message called before initialize",
+				types.ErrTypeSessionError,
+				false,
+				"call initialize first to establish a session",
+			)
+		}
+
+		var p types.GenerateUserMessageParams
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, types.NewRPCError(
+				types.ErrAssertionError,
+				"invalid generate_user_message params",
+				types.ErrTypeAssertionError,
+				false,
+				err.Error(),
+			)
+		}
+
+		persona := simulation.Persona{
+			Name:         p.Persona.Name,
+			SystemPrompt: p.Persona.SystemPrompt,
+			Style:        p.Persona.Style,
+			Temperature:  p.Persona.Temperature,
+			MaxTokens:    p.Persona.MaxTokens,
+		}
+
+		var prov llm.Provider = provider
+		if p.FaultConfig != nil {
+			fc := simulation.FaultConfig{
+				ErrorRate:         p.FaultConfig.ErrorRate,
+				LatencyJitter:     time.Duration(p.FaultConfig.LatencyJitterMS) * time.Millisecond,
+				ContentCorruption: p.FaultConfig.ContentCorruption,
+				TimeoutAfter:      time.Duration(p.FaultConfig.TimeoutAfterMS) * time.Millisecond,
+			}
+			prov = simulation.NewFaultInjector(prov, fc)
+		}
+
+		user := simulation.NewSimulatedUser(persona, prov)
+
+		messages := make([]llm.Message, 0, len(p.ConversationHistory))
+		for _, m := range p.ConversationHistory {
+			messages = append(messages, llm.Message{Role: m.Role, Content: m.Content})
+		}
+
+		msg, err := user.GenerateMessage(context.Background(), messages)
+		if err != nil {
+			return nil, types.NewRPCError(
+				types.ErrEngineError,
+				fmt.Sprintf("generate_user_message failed: %v", err),
+				types.ErrTypeEngineError,
+				true,
+				"check LLM provider availability and retry",
+			)
+		}
+
+		return &types.GenerateUserMessageResult{Message: msg}, nil
 	}
 }
