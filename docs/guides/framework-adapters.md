@@ -4,7 +4,7 @@ Attest adapters capture LLM interactions as `Trace` objects. Two adapter tiers e
 
 ## Adapter Architecture
 
-```
+```text
 BaseAdapter                          ← shared utilities
 ├── BaseProviderAdapter              ← template method for single LLM calls
 │   ├── OpenAIAdapter
@@ -142,13 +142,13 @@ trace = handler.build_trace()
 
 **Callback mapping:**
 
-| Callback | Captured as |
-|---|---|
-| `on_chain_start` | Agent input |
-| `on_chain_end` | Agent output |
-| `on_chat_model_start` / `on_llm_end` | `llm_call` step with token counts |
-| `on_tool_start` / `on_tool_end` | `tool_call` step with args and result |
-| `on_tool_error` | `tool_call` step with error field |
+| Callback                             | Captured as                           |
+| ------------------------------------ | ------------------------------------- |
+| `on_chain_start`                     | Agent input                           |
+| `on_chain_end`                       | Agent output                          |
+| `on_chat_model_start` / `on_llm_end` | `llm_call` step with token counts     |
+| `on_tool_start` / `on_tool_end`      | `tool_call` step with args and result |
+| `on_tool_error`                      | `tool_call` step with error field     |
 
 ### Google ADK
 
@@ -184,14 +184,14 @@ trace = GoogleADKAdapter.from_events(
 
 **Event mapping:**
 
-| ADK event field | Captured as |
-|---|---|
-| `actions.tool_calls` | `tool_call` steps (args) |
-| `actions.tool_results` | `tool_call` steps (result) |
-| `actions.transfer_to_agent` | `agent_call` step |
-| `usage_metadata.total_token_count` | accumulated token count |
-| `is_final_response()` + `content.parts[].text` | agent output |
-| `llm_response.model_version` | model metadata (first non-None) |
+| ADK event field                                | Captured as                     |
+| ---------------------------------------------- | ------------------------------- |
+| `actions.tool_calls`                           | `tool_call` steps (args)        |
+| `actions.tool_results`                         | `tool_call` steps (result)      |
+| `actions.transfer_to_agent`                    | `agent_call` step               |
+| `usage_metadata.total_token_count`             | accumulated token count         |
+| `is_final_response()` + `content.parts[].text` | agent output                    |
+| `llm_response.model_version`                   | model metadata (first non-None) |
 
 ### LlamaIndex
 
@@ -229,12 +229,12 @@ trace = handler.build_trace(query="...", response="...")
 
 **Event mapping:**
 
-| LlamaIndex event | Captured as |
-|---|---|
-| `LLMChatStartEvent` | Buffers model name |
-| `LLMChatEndEvent` | `llm_call` step with tokens and tool calls |
-| `RetrievalStartEvent` | Buffers query string |
-| `RetrievalEndEvent` | `retrieval` step with nodes and scores |
+| LlamaIndex event      | Captured as                                |
+| --------------------- | ------------------------------------------ |
+| `LLMChatStartEvent`   | Buffers model name                         |
+| `LLMChatEndEvent`     | `llm_call` step with tokens and tool calls |
+| `RetrievalStartEvent` | Buffers query string                       |
+| `RetrievalEndEvent`   | `retrieval` step with nodes and scores     |
 
 ### OpenTelemetry
 
@@ -255,11 +255,11 @@ trace = OTelAdapter.from_spans(
 
 **Span classification:**
 
-| Span attribute | Classified as |
-|---|---|
-| `gen_ai.operation.name` == "chat" / "completion" | `llm_call` step |
+| Span attribute                                                  | Classified as    |
+| --------------------------------------------------------------- | ---------------- |
+| `gen_ai.operation.name` == "chat" / "completion"                | `llm_call` step  |
 | `gen_ai.operation.name` == "tool" or `gen_ai.tool.name` present | `tool_call` step |
-| Other spans | Skipped |
+| Other spans                                                     | Skipped          |
 
 The adapter reads `gen_ai.*` semantic conventions for model, tokens, completion text, and tool parameters.
 
@@ -384,11 +384,11 @@ class CrewAIAdapter(BaseAdapter):
 
 **Shared utilities from `BaseAdapter`:**
 
-| Method | Purpose |
-|---|---|
-| `self._create_builder()` | Returns a `TraceBuilder` pre-configured with `agent_id` |
-| `self._now_ms()` | Current wall-clock time in milliseconds |
-| `self._resolve_timestamps(started, ended)` | Fills `None` values with current time |
+| Method                                     | Purpose                                                 |
+| ------------------------------------------ | ------------------------------------------------------- |
+| `self._create_builder()`                   | Returns a `TraceBuilder` pre-configured with `agent_id` |
+| `self._now_ms()`                           | Current wall-clock time in milliseconds                 |
+| `self._resolve_timestamps(started, ended)` | Fills `None` values with current time                   |
 
 ## Base Class Reference
 
@@ -396,9 +396,9 @@ class CrewAIAdapter(BaseAdapter):
 from attest.adapters import BaseAdapter, BaseProviderAdapter
 ```
 
-| Class | Use case | Abstract methods |
-|---|---|---|
-| `BaseAdapter` | Framework adapters, custom adapters | None (concrete) |
-| `BaseProviderAdapter` | Single LLM call adapters | `_extract_completion`, `_extract_model`, `_extract_total_tokens`, `_extract_tool_calls` |
+| Class                 | Use case                            | Abstract methods                                                                        |
+| --------------------- | ----------------------------------- | --------------------------------------------------------------------------------------- |
+| `BaseAdapter`         | Framework adapters, custom adapters | None (concrete)                                                                         |
+| `BaseProviderAdapter` | Single LLM call adapters            | `_extract_completion`, `_extract_model`, `_extract_total_tokens`, `_extract_tool_calls` |
 
 The legacy `TraceAdapter`, `ProviderAdapter`, and `FrameworkAdapter` Protocols remain exported for backward compatibility. New adapters should use the class hierarchy.
