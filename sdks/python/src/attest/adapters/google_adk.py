@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from typing import Any
 
 from attest._proto.types import STEP_AGENT_CALL, Step, Trace
-from attest.trace import TraceBuilder
+from attest.adapters._base import BaseAdapter
 
 
 def _require_adk() -> None:
@@ -17,7 +17,7 @@ def _require_adk() -> None:
         raise ImportError("Install ADK extras: uv add 'attest-ai[google-adk]'")
 
 
-class GoogleADKAdapter:
+class GoogleADKAdapter(BaseAdapter):
     """Maps Google ADK events to Attest traces.
 
     Event mapping:
@@ -28,9 +28,6 @@ class GoogleADKAdapter:
     - event.is_final_response() + event.content.parts[].text -> output text
     - event.llm_response.model_version -> model name (first non-None wins)
     """
-
-    def __init__(self, agent_id: str | None = None) -> None:
-        self._agent_id = agent_id
 
     async def capture_async(
         self,
@@ -97,7 +94,7 @@ class GoogleADKAdapter:
 
     def _build_trace(self, events: list[Any], input_message: str = "") -> Trace:
         """Internal trace builder from ADK events."""
-        builder = TraceBuilder(agent_id=self._agent_id)
+        builder = self._create_builder()
 
         if input_message:
             builder.set_input_dict({"message": input_message})
@@ -105,8 +102,26 @@ class GoogleADKAdapter:
         output_parts: list[str] = []
         total_tokens: int = 0
         model: str | None = None
+        trace_started_at_ms: int | None = None
+        trace_ended_at_ms: int | None = None
 
         for event in events:
+            # Extract event-level timestamp (ADK events may carry a timestamp attribute)
+            event_timestamp = getattr(event, "timestamp", None)
+            event_ms: int | None = None
+            if event_timestamp is not None:
+                # ADK timestamps are float seconds since epoch
+                event_ms = int(float(event_timestamp) * 1000)
+            else:
+                event_ms = self._now_ms()
+
+            if trace_started_at_ms is None:
+                trace_started_at_ms = event_ms
+            trace_ended_at_ms = event_ms
+
+            # Extract author (agent name / role) for step attribution
+            event_author: str | None = getattr(event, "author", None)
+
             # Extract tool calls
             actions = getattr(event, "actions", None)
             if actions is not None:
@@ -118,7 +133,13 @@ class GoogleADKAdapter:
                         call_args: dict[str, Any] | None = None
                         if args is not None:
                             call_args = dict(args) if hasattr(args, "items") else {"value": args}
-                        builder.add_tool_call(name=name, args=call_args)
+                        builder.add_tool_call(
+                            name=name,
+                            args=call_args,
+                            started_at_ms=event_ms,
+                            ended_at_ms=event_ms,
+                            agent_id=event_author,
+                        )
 
                 tool_results = getattr(actions, "tool_results", None)
                 if tool_results:
@@ -128,12 +149,25 @@ class GoogleADKAdapter:
                         call_result: dict[str, Any] | None = None
                         if res is not None:
                             call_result = dict(res) if hasattr(res, "items") else {"value": res}
-                        builder.add_tool_call(name=name, args=None, result=call_result)
+                        builder.add_tool_call(
+                            name=name,
+                            args=None,
+                            result=call_result,
+                            started_at_ms=event_ms,
+                            ended_at_ms=event_ms,
+                            agent_id=event_author,
+                        )
 
                 transfer = getattr(actions, "transfer_to_agent", None)
                 if transfer is not None:
                     builder.add_step(
-                        Step(type=STEP_AGENT_CALL, name=str(transfer))
+                        Step(
+                            type=STEP_AGENT_CALL,
+                            name=str(transfer),
+                            started_at_ms=event_ms,
+                            ended_at_ms=event_ms,
+                            agent_id=event_author,
+                        )
                     )
 
             # Extract token usage
@@ -169,6 +203,9 @@ class GoogleADKAdapter:
             "generate_content",
             args={"model": model} if model else None,
             result={"completion": output_text, "total_tokens": total_tokens},
+            started_at_ms=trace_started_at_ms,
+            ended_at_ms=trace_ended_at_ms,
+            agent_id=self._agent_id,
         )
 
         builder.set_output_dict({"message": output_text})

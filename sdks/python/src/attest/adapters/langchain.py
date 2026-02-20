@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from attest._proto.types import Trace
-from attest.trace import TraceBuilder
+from attest.adapters._base import BaseAdapter
 
 if TYPE_CHECKING:
     from langchain_core.messages import BaseMessage
@@ -24,7 +24,7 @@ def _require_langchain() -> None:
         raise ImportError("Install langchain extras: uv add 'attest-ai[langchain]'")
 
 
-class LangChainCallbackHandler:
+class LangChainCallbackHandler(BaseAdapter):
     """Accumulates LangChain callback events and builds an Attest Trace.
 
     Usage::
@@ -35,8 +35,8 @@ class LangChainCallbackHandler:
     """
 
     def __init__(self, agent_id: str | None = None) -> None:
+        super().__init__(agent_id=agent_id)
         _require_langchain()
-        self._agent_id = agent_id
         self._input: str | None = None
         self._output: str | None = None
         self._steps: list[dict[str, Any]] = []
@@ -111,6 +111,7 @@ class LangChainCallbackHandler:
             "model_name": model_name,
             "messages": messages,
             "start_time": time.monotonic(),
+            "started_at_ms": self._now_ms(),
         }
 
     def on_llm_end(
@@ -125,6 +126,8 @@ class LangChainCallbackHandler:
         start_info = self._llm_starts.pop(run_key, {})
         model_name = start_info.get("model_name")
         start_time = start_info.get("start_time")
+        started_at_ms: int | None = start_info.get("started_at_ms")
+        ended_at_ms = self._now_ms()
 
         # Extract token usage
         input_tokens = 0
@@ -170,6 +173,8 @@ class LangChainCallbackHandler:
             "args": args,
             "result": result,
             "metadata": metadata,
+            "started_at_ms": started_at_ms,
+            "ended_at_ms": ended_at_ms,
         })
 
     # ------------------------------------------------------------------
@@ -190,6 +195,7 @@ class LangChainCallbackHandler:
             "name": tool_name,
             "input": input_str,
             "start_time": time.monotonic(),
+            "started_at_ms": self._now_ms(),
         }
 
     def on_tool_end(
@@ -205,6 +211,8 @@ class LangChainCallbackHandler:
         tool_name = start_info.get("name", "unknown_tool")
         start_time = start_info.get("start_time")
         tool_input = start_info.get("input", "")
+        started_at_ms: int | None = start_info.get("started_at_ms")
+        ended_at_ms = self._now_ms()
 
         metadata: dict[str, Any] = {}
         if start_time is not None:
@@ -216,6 +224,8 @@ class LangChainCallbackHandler:
             "args": {"input": tool_input},
             "result": {"output": output},
             "metadata": metadata,
+            "started_at_ms": started_at_ms,
+            "ended_at_ms": ended_at_ms,
         })
 
     def on_tool_error(
@@ -231,6 +241,8 @@ class LangChainCallbackHandler:
         tool_name = start_info.get("name", "unknown_tool")
         start_time = start_info.get("start_time")
         tool_input = start_info.get("input", "")
+        started_at_ms: int | None = start_info.get("started_at_ms")
+        ended_at_ms = self._now_ms()
 
         metadata: dict[str, Any] = {}
         if start_time is not None:
@@ -242,6 +254,8 @@ class LangChainCallbackHandler:
             "args": {"input": tool_input},
             "result": {"error": str(error)},
             "metadata": metadata,
+            "started_at_ms": started_at_ms,
+            "ended_at_ms": ended_at_ms,
         })
 
     # ------------------------------------------------------------------
@@ -257,7 +271,7 @@ class LangChainCallbackHandler:
             raise RuntimeError("build_trace() already called on this handler")
         self._built = True
 
-        builder = TraceBuilder(agent_id=self._agent_id)
+        builder = self._create_builder()
 
         if self._input:
             builder.set_input_dict({"message": self._input})
@@ -269,6 +283,9 @@ class LangChainCallbackHandler:
                     args=step.get("args"),
                     result=step.get("result"),
                     metadata=step.get("metadata"),
+                    started_at_ms=step.get("started_at_ms"),
+                    ended_at_ms=step.get("ended_at_ms"),
+                    agent_id=self._agent_id,
                 )
             elif step["type"] == "tool_call":
                 builder.add_tool_call(
@@ -276,6 +293,9 @@ class LangChainCallbackHandler:
                     args=step.get("args"),
                     result=step.get("result"),
                     metadata=step.get("metadata"),
+                    started_at_ms=step.get("started_at_ms"),
+                    ended_at_ms=step.get("ended_at_ms"),
+                    agent_id=self._agent_id,
                 )
 
         latency_ms: int | None = None
@@ -292,7 +312,7 @@ class LangChainCallbackHandler:
         return builder.build()
 
 
-class LangChainAdapter:
+class LangChainAdapter(BaseAdapter):
     """Context-manager wrapper around LangChainCallbackHandler.
 
     Usage::
@@ -304,7 +324,7 @@ class LangChainAdapter:
     """
 
     def __init__(self, agent_id: str | None = None) -> None:
-        self._agent_id = agent_id
+        super().__init__(agent_id=agent_id)
         self._trace: Trace | None = None
 
     @property

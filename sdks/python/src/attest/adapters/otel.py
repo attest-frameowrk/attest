@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 from attest._proto.types import Trace
-from attest.trace import TraceBuilder
+from attest.adapters._base import BaseAdapter
 
 if TYPE_CHECKING:
     from opentelemetry.sdk.trace import ReadableSpan
@@ -20,7 +20,7 @@ def _require_otel() -> None:
         raise ImportError("Install otel extras: uv add 'attest-ai[otel]'")
 
 
-class OTelAdapter:
+class OTelAdapter(BaseAdapter):
     """Maps OpenTelemetry spans to Attest traces using gen_ai.* semantic conventions.
 
     Span mapping:
@@ -30,9 +30,6 @@ class OTelAdapter:
 
     The root span (no parent, or outermost) determines the trace output and metadata.
     """
-
-    def __init__(self, agent_id: str | None = None) -> None:
-        self._agent_id = agent_id
 
     @classmethod
     def from_spans(
@@ -59,7 +56,7 @@ class OTelAdapter:
         # Sort spans by start time
         sorted_spans = sorted(spans, key=lambda s: s.start_time or 0)
 
-        builder = TraceBuilder(agent_id=self._agent_id)
+        builder = self._create_builder()
 
         # Find root span: span with no parent or lowest start time
         root_span = self._find_root_span(sorted_spans)

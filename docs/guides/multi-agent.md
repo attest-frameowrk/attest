@@ -358,3 +358,126 @@ Tool calls: ['search_web', 'write_doc']
 Depth: 1
 Total cost: $0.0150
 ```
+
+## Temporal Assertions
+
+Temporal assertions verify the execution order and timing of agents within a trace tree. They are Layer 7 — deterministic, free, and instant. Each assertion requires that `Step` objects carry `started_at` and `ended_at` timestamps (populated automatically by framework adapters and `TraceBuilder` methods that accept timing arguments).
+
+### `agent_ordered_before(a, b)`
+
+Assert that agent `a` completed before agent `b` started. Use this to enforce sequential execution guarantees.
+
+```python
+from attest import expect
+
+# researcher must complete before writer begins
+expect(result).agent_ordered_before("researcher", "writer")
+```
+
+Fails if:
+
+- Either agent is not present in the trace tree.
+- `researcher.ended_at > writer.started_at` (they overlapped or writer ran first).
+
+### `agents_overlap(a, b)`
+
+Assert that agents `a` and `b` executed concurrently — their time ranges intersect. Use this to verify parallel execution in fan-out pipelines.
+
+```python
+# data-fetcher and context-loader must run in parallel
+expect(result).agents_overlap("data-fetcher", "context-loader")
+```
+
+Fails if:
+
+- Either agent is not present in the trace tree.
+- The agents ran sequentially with no overlap.
+
+### `agent_wall_time_under(agent_id, max_ms)`
+
+Assert that a specific agent's wall-clock duration is under `max_ms` milliseconds. Use this to enforce per-agent performance budgets.
+
+```python
+# researcher must complete within 3 seconds
+expect(result).agent_wall_time_under("researcher", max_ms=3000)
+
+# writer must complete within 2 seconds (soft — warn, don't block CI)
+expect(result).agent_wall_time_under("writer", max_ms=2000, soft=True)
+```
+
+Wall time is `ended_at - started_at` for the agent's root trace.
+
+### `ordered_agents(groups)`
+
+Assert that agents executed in a defined pipeline order. `groups` is a list of lists; agents within the same group ran concurrently, and each group completed before the next group started.
+
+```python
+# Sequential pipeline: orchestrator → [researcher, context-loader] → writer
+expect(result).ordered_agents([
+    ["orchestrator"],
+    ["researcher", "context-loader"],  # these two run in parallel
+    ["writer"],
+])
+```
+
+This combines ordering and overlap assertions in a single call:
+
+- Agents within a group must all overlap each other (or be the only member).
+- The last agent in group `n` must finish before the first agent in group `n+1` starts.
+
+### Temporal Assertion Example
+
+End-to-end test combining structural, choreography, and temporal assertions:
+
+```python
+from attest import expect
+from attest.simulation import scenario, repeat, FRIENDLY_USER
+
+
+@repeat(n=3)
+@scenario(persona=FRIENDLY_USER, seed=42)
+def test_pipeline_timing(persona):
+    result = run_research_pipeline("AI testing frameworks")
+
+    # Structural
+    expect(result).agent_called("researcher")
+    expect(result).agent_called("context-loader")
+    expect(result).agent_called("writer")
+    expect(result).delegation_depth(2)
+
+    # Choreography
+    expect(result).follows_transitions([
+        ("orchestrator", "researcher"),
+        ("orchestrator", "context-loader"),
+        ("orchestrator", "writer"),
+    ])
+
+    # Temporal — execution order
+    expect(result).agent_ordered_before("orchestrator", "researcher")
+    expect(result).agent_ordered_before("orchestrator", "context-loader")
+    expect(result).agent_ordered_before("researcher", "writer")
+    expect(result).agent_ordered_before("context-loader", "writer")
+
+    # Temporal — parallel execution
+    expect(result).agents_overlap("researcher", "context-loader")
+
+    # Temporal — performance budgets
+    expect(result).agent_wall_time_under("researcher", max_ms=5000)
+    expect(result).agent_wall_time_under("writer", max_ms=3000)
+
+    # Temporal — pipeline ordering (concise form)
+    expect(result).ordered_agents([
+        ["orchestrator"],
+        ["researcher", "context-loader"],
+        ["writer"],
+    ])
+
+    # Cost governance
+    expect(result).aggregate_cost_under(0.10)
+
+    return result
+
+
+repeat_result = test_pipeline_timing()
+assert repeat_result.all_passed
+```
