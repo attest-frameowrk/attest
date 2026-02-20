@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+import pytest
+
 from attest.adapters.gemini import GeminiAdapter
 
 
@@ -39,7 +41,8 @@ class MockResponse:
 def test_gemini_basic_response_via_text() -> None:
     adapter = GeminiAdapter(agent_id="gemini-agent")
     response = MockResponse(text="Simple answer.")
-    trace = adapter.trace_from_response(response, input_text="What is 2+2?")
+    with pytest.warns(DeprecationWarning, match="input_text"):
+        trace = adapter.trace_from_response(response, input_text="What is 2+2?")
     assert trace.agent_id == "gemini-agent"
     assert trace.output["message"] == "Simple answer."
     assert trace.input == {"text": "What is 2+2?"}

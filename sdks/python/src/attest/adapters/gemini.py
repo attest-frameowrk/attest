@@ -2,59 +2,96 @@
 
 from __future__ import annotations
 
+import warnings
 from typing import Any
 
 from attest._proto.types import Trace
-from attest.trace import TraceBuilder
+from attest.adapters._base import BaseProviderAdapter
 
 
-class GeminiAdapter:
+class GeminiAdapter(BaseProviderAdapter):
     """Captures Google Gemini generate_content calls into Attest traces."""
-
-    def __init__(self, agent_id: str | None = None) -> None:
-        self._agent_id = agent_id
 
     def trace_from_response(
         self,
-        response: Any,  # google.generativeai GenerateContentResponse
-        input_text: str | None = None,
+        response: Any,
+        input_messages: list[dict[str, Any]] | None = None,
+        started_at_ms: int | None = None,
+        ended_at_ms: int | None = None,
         **metadata: Any,
     ) -> Trace:
         """Build a Trace from a Gemini GenerateContentResponse.
 
+        Accepts both ``input_messages`` (standard) and the deprecated
+        ``input_text`` kwarg for backward compatibility.
+
         Args:
             response: Gemini GenerateContentResponse object.
-            input_text: The text prompt sent to the API.
+            input_messages: The messages sent to the API.
+            started_at_ms: Wall-clock ms when the request was sent.
+            ended_at_ms: Wall-clock ms when the response was received.
             **metadata: Additional trace metadata (cost_usd, latency_ms, model).
+                Use ``input_text`` (deprecated) to pass a plain text prompt.
         """
-        builder = TraceBuilder(agent_id=self._agent_id)
+        if "input_text" in metadata:
+            warnings.warn(
+                "GeminiAdapter: 'input_text' is deprecated, use 'input_messages' instead. "
+                "Pass input_messages=[{'role': 'user', 'content': text}].",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            if input_messages is None:
+                input_messages = [{"role": "user", "content": metadata.pop("input_text")}]
+            else:
+                metadata.pop("input_text")
 
-        if input_text:
-            builder.set_input_dict({"text": input_text})
-
-        completion_text = ""
-        if hasattr(response, "text") and response.text is not None:
-            completion_text = response.text
-        elif hasattr(response, "candidates") and response.candidates:
-            parts = response.candidates[0].content.parts
-            completion_text = "".join(p.text for p in parts if hasattr(p, "text"))
-
-        if hasattr(response, "candidates") and response.candidates:
-            for part in response.candidates[0].content.parts:
-                if hasattr(part, "function_call") and part.function_call:
-                    fc = part.function_call
-                    builder.add_tool_call(
-                        name=fc.name,
-                        args=dict(fc.args) if fc.args else {},
-                    )
-
-        builder.add_llm_call("completion", result={"completion": completion_text})
-        builder.set_output_dict({"message": completion_text})
-
-        builder.set_metadata(
-            cost_usd=metadata.get("cost_usd"),
-            latency_ms=metadata.get("latency_ms"),
-            model=metadata.get("model"),
+        return super().trace_from_response(
+            response,
+            input_messages=input_messages,
+            started_at_ms=started_at_ms,
+            ended_at_ms=ended_at_ms,
+            **metadata,
         )
 
-        return builder.build()
+    def _extract_input(
+        self,
+        input_messages: list[dict[str, Any]] | None,
+        **metadata: Any,
+    ) -> dict[str, Any] | None:
+        if input_messages:
+            # Gemini historically used {"text": ...} format for single text inputs
+            if (
+                len(input_messages) == 1
+                and "content" in input_messages[0]
+                and isinstance(input_messages[0]["content"], str)
+            ):
+                return {"text": input_messages[0]["content"]}
+            return {"messages": input_messages}
+        return None
+
+    def _extract_completion(self, response: Any) -> str:
+        if hasattr(response, "text") and response.text is not None:
+            return response.text  # type: ignore[no-any-return]
+        if hasattr(response, "candidates") and response.candidates:
+            parts = response.candidates[0].content.parts
+            return "".join(p.text for p in parts if hasattr(p, "text"))
+        return ""
+
+    def _extract_model(self, response: Any, **metadata: Any) -> str | None:
+        return metadata.get("model")
+
+    def _extract_total_tokens(self, response: Any) -> int | None:
+        return None
+
+    def _extract_tool_calls(self, response: Any) -> list[dict[str, Any]]:
+        if not hasattr(response, "candidates") or not response.candidates:
+            return []
+        calls: list[dict[str, Any]] = []
+        for part in response.candidates[0].content.parts:
+            if hasattr(part, "function_call") and part.function_call:
+                fc = part.function_call
+                calls.append({
+                    "name": fc.name,
+                    "args": dict(fc.args) if fc.args else {},
+                })
+        return calls

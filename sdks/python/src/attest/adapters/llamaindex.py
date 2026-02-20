@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from attest._proto.types import Trace
-from attest.trace import TraceBuilder
+from attest.adapters._base import BaseAdapter
 
 
 def _require_llamaindex() -> None:
@@ -16,7 +16,7 @@ def _require_llamaindex() -> None:
         raise ImportError("Install llamaindex extras: uv add 'attest-ai[llamaindex]'")
 
 
-class LlamaIndexInstrumentationHandler:
+class LlamaIndexInstrumentationHandler(BaseAdapter):
     """Captures LlamaIndex events and converts them to Attest traces.
 
     Registers an event handler with the LlamaIndex global instrumentation
@@ -30,7 +30,7 @@ class LlamaIndexInstrumentationHandler:
     """
 
     def __init__(self, agent_id: str | None = None) -> None:
-        self._agent_id = agent_id
+        super().__init__(agent_id=agent_id)
         self._handler: Any = None
         self._llm_events: list[dict[str, Any]] = []
         self._retrieval_events: list[dict[str, Any]] = []
@@ -191,7 +191,7 @@ class LlamaIndexInstrumentationHandler:
         Returns:
             Attest Trace populated from captured LlamaIndex events.
         """
-        builder = TraceBuilder(agent_id=self._agent_id)
+        builder = self._create_builder()
 
         if query is not None:
             builder.set_input_dict({"message": query})
