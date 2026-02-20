@@ -22,6 +22,7 @@ from attest.adapters.openai import OpenAIAdapter
 from attest.adapters.otel import OTelAdapter
 from attest.agent import Agent, agent
 from attest.config import config
+from attest.continuous import AlertDispatcher, ContinuousEvalRunner, Sampler
 from attest.delegate import delegate
 from attest.expect import ExpectChain, expect
 from attest.result import AgentResult
@@ -73,6 +74,10 @@ __all__ = [
     "LangChainCallbackHandler",
     "LlamaIndexInstrumentationHandler",
     "CrewAIAdapter",
+    # Continuous eval
+    "ContinuousEvalRunner",
+    "Sampler",
+    "AlertDispatcher",
     # Version
     "__version__",
 ]
