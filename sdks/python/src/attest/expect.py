@@ -498,10 +498,17 @@ class ExpectChain:
         )
 
 
-def expect(result: AgentResult) -> ExpectChain:
+def expect(result: AgentResult | Trace) -> ExpectChain:
     """Create an assertion chain for an agent result.
 
-    Usage:
+    Accepts either an ``AgentResult`` or a raw ``Trace``.  When a ``Trace``
+    is passed it is automatically wrapped in an ``AgentResult``.
+
+    Usage::
+
         expect(result).output_contains("refund").cost_under(0.01)
+        expect(trace).required_tools(["search"])  # also works
     """
+    if isinstance(result, Trace):
+        result = AgentResult(trace=result)
     return ExpectChain(result)
