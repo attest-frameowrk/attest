@@ -1,8 +1,8 @@
 site_name: Attest
 site_description: Test framework for AI agents
-site_url: https://attest-frameowrk.github.io/attest/
-repo_url: https://github.com/attest-frameowrk/attest
-repo_name: attest-frameowrk/attest
+site_url: https://attest-framework.github.io/attest/
+repo_url: https://github.com/attest-framework/attest
+repo_name: attest-framework/attest
 
 theme:
   name: material

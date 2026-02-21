@@ -87,9 +87,9 @@ New to Attest? Start with the [quickstart guide](getting-started.md) to set up y
 
 ## Community
 
-- GitHub: [attest-frameowrk/attest](https://github.com/attest-frameowrk/attest)
-- Issues: [Report bugs or request features](https://github.com/attest-frameowrk/attest/issues)
-- Discussions: [Ask questions and share ideas](https://github.com/attest-frameowrk/attest/discussions)
+- GitHub: [attest-framework/attest](https://github.com/attest-framework/attest)
+- Issues: [Report bugs or request features](https://github.com/attest-framework/attest/issues)
+- Discussions: [Ask questions and share ideas](https://github.com/attest-framework/attest/discussions)
 
 ---
 

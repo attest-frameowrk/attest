@@ -55,6 +55,6 @@ pytest tests/ --attest-engine=/path/to/attest-engine
 
 ## Links
 
-- [Repository](https://github.com/attest-frameowrk/attest)
-- [Contributing](https://github.com/attest-frameowrk/attest/blob/main/CONTRIBUTING.md)
-- [License](https://github.com/attest-frameowrk/attest/blob/main/LICENSE) (Apache-2.0)
+- [Repository](https://github.com/attest-framework/attest)
+- [Contributing](https://github.com/attest-framework/attest/blob/main/CONTRIBUTING.md)
+- [License](https://github.com/attest-framework/attest/blob/main/LICENSE) (Apache-2.0)

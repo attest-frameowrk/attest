@@ -30,7 +30,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/attest-frameowrk/attest.git",
+    "url": "https://github.com/attest-framework/attest.git",
     "directory": "sdks/typescript/packages/vitest"
   },
   "license": "MIT",
