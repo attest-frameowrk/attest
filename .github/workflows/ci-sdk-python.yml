@@ -41,3 +41,30 @@ jobs:
           cd sdks/python
           uv pip install pip-audit
           uv run pip-audit
+
+  # Notify docs site of SDK changes so it can rebuild
+  # Requires DOCS_DEPLOY_TOKEN secret: GitHub PAT with repo scope
+  # for cross-repo repository_dispatch to attest-framework/attest-website
+  notify-docs:
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
+      - name: Check for SDK source changes
+        id: changes
+        run: |
+          if git diff --name-only HEAD~1 HEAD | grep -qE '^sdks/python/src/attest/'; then
+            echo "sdk_changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "sdk_changed=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Dispatch docs rebuild
+        if: steps.changes.outputs.sdk_changed == 'true'
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.DOCS_DEPLOY_TOKEN }}
+          repository: attest-framework/attest-website
+          event-type: docs-update
