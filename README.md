@@ -6,6 +6,8 @@
 
 **Test your AI agents like you test your code.**
 
+[Documentation](https://attest-framework.github.io/attest-website/) | [Examples](https://github.com/attest-framework/attest-examples) | [Contributing](CONTRIBUTING.md)
+
 Attest is an open-source testing framework purpose-built for AI agents and LLM-powered systems. It treats deterministic assertions as first-class citizens alongside probabilistic evaluation — because 70% of your agent's testable surface is deterministic.
 
 > **Status:** v0.4.0 — 8 assertion layers, 11 adapters, continuous eval, drift detection, plugin system, result history (SQLite), CLI init/validate, Python + TypeScript SDKs, pytest + vitest integrations, MkDocs documentation.
