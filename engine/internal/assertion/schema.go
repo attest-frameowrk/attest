@@ -1,13 +1,18 @@
 package assertion
 
 import (
-	"encoding/json"
+	"crypto/sha256"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/attest-ai/attest/engine/pkg/types"
 	"github.com/santhosh-tekuri/jsonschema/v6"
+	"github.com/segmentio/encoding/json"
 )
+
+// schemaCache is a process-level cache of compiled JSON schemas keyed by SHA-256 of the raw schema bytes.
+var schemaCache sync.Map // map[string]*jsonschema.Schema
 
 // SchemaEvaluator implements Layer 1: JSON Schema validation.
 type SchemaEvaluator struct{}
@@ -40,13 +45,22 @@ func (e *SchemaEvaluator) Evaluate(trace *types.Trace, assertion *types.Assertio
 		return failResult(assertion, start, fmt.Sprintf("invalid JSON schema: %v", err))
 	}
 
-	compiler := jsonschema.NewCompiler()
-	if err := compiler.AddResource("schema.json", schemaDoc); err != nil {
-		return failResult(assertion, start, fmt.Sprintf("schema compilation failed: %v", err))
-	}
-	schema, err := compiler.Compile("schema.json")
-	if err != nil {
-		return failResult(assertion, start, fmt.Sprintf("schema compilation failed: %v", err))
+	// Cache compiled schemas keyed by SHA-256 of raw schema bytes.
+	cacheKey := fmt.Sprintf("%x", sha256.Sum256(spec.Schema))
+	var schema *jsonschema.Schema
+	if cached, ok := schemaCache.Load(cacheKey); ok {
+		schema = cached.(*jsonschema.Schema)
+	} else {
+		compiler := jsonschema.NewCompiler()
+		if err := compiler.AddResource("schema.json", schemaDoc); err != nil {
+			return failResult(assertion, start, fmt.Sprintf("schema compilation failed: %v", err))
+		}
+		compiled, err := compiler.Compile("schema.json")
+		if err != nil {
+			return failResult(assertion, start, fmt.Sprintf("schema compilation failed: %v", err))
+		}
+		schema = compiled
+		schemaCache.Store(cacheKey, schema)
 	}
 
 	var value any
