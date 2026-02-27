@@ -11,13 +11,11 @@ from attest.engine_manager import EngineManager, _engine_timeout, _find_engine_b
 from attest.exceptions import EngineTimeoutError
 
 
-def test_find_engine_binary_not_found() -> None:
+def test_find_engine_binary_not_found(monkeypatch: pytest.MonkeyPatch) -> None:
     """Raises FileNotFoundError with descriptive message when binary absent."""
-    try:
+    monkeypatch.setenv("ATTEST_ENGINE_NO_DOWNLOAD", "1")
+    with pytest.raises(FileNotFoundError, match="attest-engine"):
         _find_engine_binary()
-    except FileNotFoundError as e:
-        assert "attest-engine" in str(e)
-        assert "PATH" in str(e) or "bin" in str(e)
 
 
 def test_engine_manager_not_initialized_raises() -> None:

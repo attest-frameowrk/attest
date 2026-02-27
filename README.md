@@ -10,7 +10,7 @@
 
 Attest is an open-source testing framework purpose-built for AI agents and LLM-powered systems. It treats deterministic assertions as first-class citizens alongside probabilistic evaluation — because 70% of your agent's testable surface is deterministic.
 
-> **Status:** v0.7.0 — 8 assertion layers, 11 adapters (Python) + 7 adapters (TypeScript incl. LangChain.js), continuous eval, drift detection, plugin system, result history (SQLite), CLI (Python + TypeScript), budget tracking, engine timeouts, concurrent evaluation, schema caching, branded types, CJS/ESM dual output, pytest + vitest integrations, comprehensive test coverage.
+> **Status:** v0.5.0 — 8 assertion layers, 11 adapters (Python) + 7 adapters (TypeScript incl. LangChain.js), continuous eval, drift detection, plugin system, result history (SQLite), CLI (Python + TypeScript), budget tracking, engine timeouts, concurrent evaluation, schema caching, branded types, CJS/ESM dual output, pytest + vitest integrations, comprehensive test coverage.
 
 ---
 
