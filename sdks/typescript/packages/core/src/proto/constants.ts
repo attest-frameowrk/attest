@@ -17,6 +17,7 @@ export const TYPE_CONTENT = "content" as const;
 export const TYPE_EMBEDDING = "embedding" as const;
 export const TYPE_LLM_JUDGE = "llm_judge" as const;
 export const TYPE_TRACE_TREE = "trace_tree" as const;
+export const TYPE_PLUGIN = "plugin" as const;
 
 // Error code constants
 export const ERR_INVALID_TRACE = 1001 as const;

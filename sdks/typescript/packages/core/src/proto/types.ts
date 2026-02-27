@@ -1,3 +1,111 @@
+// ---------------------------------------------------------------------------
+// Branded ID types (T6)
+// ---------------------------------------------------------------------------
+
+declare const __brand: unique symbol;
+type Brand<T, B extends string> = T & { readonly [__brand]: B };
+
+export type TraceId = Brand<string, "TraceId">;
+export type AssertionId = Brand<string, "AssertionId">;
+export type AgentId = Brand<string, "AgentId">;
+
+export function traceId(id: string): TraceId {
+  return id as TraceId;
+}
+
+export function assertionId(id: string): AssertionId {
+  return id as AssertionId;
+}
+
+export function agentId(id: string): AgentId {
+  return id as AgentId;
+}
+
+// ---------------------------------------------------------------------------
+// Assertion spec discriminated unions (T5)
+// ---------------------------------------------------------------------------
+
+export interface SchemaSpec {
+  readonly type: "schema";
+  readonly target: string;
+  readonly schema: Record<string, unknown>;
+}
+
+export interface ConstraintSpec {
+  readonly type: "constraint";
+  readonly field: string;
+  readonly operator: string;
+  readonly value?: number;
+  readonly min?: number;
+  readonly max?: number;
+  readonly soft: boolean;
+}
+
+export interface TraceSpec {
+  readonly type: "trace";
+  readonly check: string;
+  readonly tools?: string[];
+  readonly tool?: string;
+  readonly max_repetitions?: number;
+  readonly soft: boolean;
+}
+
+export interface ContentSpec {
+  readonly type: "content";
+  readonly target: string;
+  readonly check: string;
+  readonly value?: string;
+  readonly values?: string[];
+  readonly case_sensitive?: boolean;
+  readonly soft?: boolean;
+}
+
+export interface EmbeddingSpec {
+  readonly type: "embedding";
+  readonly target: string;
+  readonly reference: string;
+  readonly threshold: number;
+  readonly model?: string;
+  readonly soft: boolean;
+}
+
+export interface LlmJudgeSpec {
+  readonly type: "llm_judge";
+  readonly target: string;
+  readonly criteria: string;
+  readonly rubric: string;
+  readonly threshold: number;
+  readonly model?: string;
+  readonly soft: boolean;
+}
+
+export interface TraceTreeSpec {
+  readonly type: "trace_tree";
+  readonly check: string;
+  readonly [key: string]: unknown;
+}
+
+export interface PluginSpec {
+  readonly type: "plugin";
+  readonly plugin_id: string;
+  readonly config?: Record<string, unknown>;
+  readonly soft: boolean;
+}
+
+export type AssertionSpec =
+  | SchemaSpec
+  | ConstraintSpec
+  | TraceSpec
+  | ContentSpec
+  | EmbeddingSpec
+  | LlmJudgeSpec
+  | TraceTreeSpec
+  | PluginSpec;
+
+// ---------------------------------------------------------------------------
+// Core protocol types
+// ---------------------------------------------------------------------------
+
 export interface TraceMetadata {
   readonly total_tokens?: number;
   readonly cost_usd?: number;
