@@ -236,3 +236,49 @@ def test_expect_temporal_chaining() -> None:
         "agent_wall_time_under",
         "ordered_agents",
     ]
+
+
+# ── P9: TraceTree analytics DSL ──
+
+
+def test_expect_aggregate_latency_under() -> None:
+    chain = expect(_make_result()).aggregate_latency_under(5000)
+    assert len(chain.assertions) == 1
+    a = chain.assertions[0]
+    assert a.type == "trace_tree"
+    assert a.spec["check"] == "aggregate_latency"
+    assert a.spec["operator"] == "lte"
+    assert a.spec["value"] == 5000
+    assert a.spec["soft"] is False
+
+
+def test_expect_aggregate_latency_under_soft() -> None:
+    chain = expect(_make_result()).aggregate_latency_under(5000, soft=True)
+    assert chain.assertions[0].spec["soft"] is True
+
+
+def test_expect_all_tools_called() -> None:
+    chain = expect(_make_result()).all_tools_called(["search", "summarize"])
+    assert len(chain.assertions) == 1
+    a = chain.assertions[0]
+    assert a.type == "trace_tree"
+    assert a.spec["check"] == "all_tools_called"
+    assert a.spec["tools"] == ["search", "summarize"]
+    assert a.spec["soft"] is False
+
+
+def test_expect_all_tools_called_soft() -> None:
+    chain = expect(_make_result()).all_tools_called(["search"], soft=True)
+    assert chain.assertions[0].spec["soft"] is True
+
+
+def test_expect_analytics_chaining() -> None:
+    chain = (
+        expect(_make_result())
+        .aggregate_latency_under(5000)
+        .all_tools_called(["search"])
+        .cost_under(0.01)
+    )
+    assert len(chain.assertions) == 3
+    types = [a.type for a in chain.assertions]
+    assert types == ["trace_tree", "trace_tree", "constraint"]

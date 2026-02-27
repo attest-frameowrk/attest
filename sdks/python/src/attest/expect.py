@@ -498,6 +498,22 @@ class ExpectChain:
             {"check": "ordered_agents", "groups": groups, "soft": soft},
         )
 
+    # ── Layer 7+: TraceTree Analytics ──
+
+    def aggregate_latency_under(self, max_ms: int, *, soft: bool = False) -> ExpectChain:
+        """Assert aggregate latency across the trace tree is at or below max_ms."""
+        return self._add(
+            TYPE_TRACE_TREE,
+            {"check": "aggregate_latency", "operator": "lte", "value": max_ms, "soft": soft},
+        )
+
+    def all_tools_called(self, tool_names: list[str], *, soft: bool = False) -> ExpectChain:
+        """Assert that all specified tools were called across the entire trace tree."""
+        return self._add(
+            TYPE_TRACE_TREE,
+            {"check": "all_tools_called", "tools": tool_names, "soft": soft},
+        )
+
     # ── Layer 8: Plugin ──
 
     def plugin(
