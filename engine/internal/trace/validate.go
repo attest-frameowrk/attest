@@ -1,11 +1,11 @@
 package trace
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 
 	"github.com/attest-ai/attest/engine/pkg/types"
+	"github.com/segmentio/encoding/json"
 )
 
 const (
@@ -26,12 +26,14 @@ var validStepTypes = map[string]struct{}{
 }
 
 // Validate validates a trace per the protocol spec section 7.
+// traceSize is the pre-computed JSON byte length of the trace; pass 0 to
+// have Validate compute it internally (slower, requires re-serialization).
 // Returns nil if the trace is valid, or an RPCError describing the first failure.
-func Validate(t *types.Trace) *types.RPCError {
-	return validateAtDepth(t, 0)
+func Validate(t *types.Trace, traceSize int) *types.RPCError {
+	return validateAtDepth(t, 0, traceSize)
 }
 
-func validateAtDepth(t *types.Trace, depth int) *types.RPCError {
+func validateAtDepth(t *types.Trace, depth int, traceSize int) *types.RPCError {
 	// 1. schema_version check
 	if t.SchemaVersion < MinSchemaVersion || t.SchemaVersion > CurrentSchemaVersion {
 		return types.NewRPCError(
@@ -76,20 +78,24 @@ func validateAtDepth(t *types.Trace, depth int) *types.RPCError {
 	}
 
 	// 3. Size limits: trace JSON size <= 10MB
-	traceBytes, err := json.Marshal(t)
-	if err != nil {
-		return types.NewRPCError(
-			types.ErrInvalidTrace,
-			"trace could not be serialized for size check",
-			types.ErrTypeInvalidTrace,
-			false,
-			"Ensure all trace fields contain valid JSON-serializable values.",
-		)
+	// Use pre-computed traceSize when available to avoid re-serialization.
+	if traceSize <= 0 {
+		traceBytes, err := json.Marshal(t)
+		if err != nil {
+			return types.NewRPCError(
+				types.ErrInvalidTrace,
+				"trace could not be serialized for size check",
+				types.ErrTypeInvalidTrace,
+				false,
+				"Ensure all trace fields contain valid JSON-serializable values.",
+			)
+		}
+		traceSize = len(traceBytes)
 	}
-	if len(traceBytes) > MaxTraceSize {
+	if traceSize > MaxTraceSize {
 		return types.NewRPCError(
 			types.ErrInvalidTrace,
-			fmt.Sprintf("trace exceeds max size: %d > %d bytes", len(traceBytes), MaxTraceSize),
+			fmt.Sprintf("trace exceeds max size: %d > %d bytes", traceSize, MaxTraceSize),
 			types.ErrTypeInvalidTrace,
 			false,
 			fmt.Sprintf("Reduce trace size by filtering steps or truncating tool results. Max allowed: %d bytes (10 MB).", MaxTraceSize),
@@ -162,7 +168,7 @@ func validateAtDepth(t *types.Trace, depth int) *types.RPCError {
 
 	for _, step := range t.Steps {
 		if step.Type == types.StepTypeAgentCall && step.SubTrace != nil {
-			if rpcErr := validateAtDepth(step.SubTrace, depth+1); rpcErr != nil {
+			if rpcErr := validateAtDepth(step.SubTrace, depth+1, 0); rpcErr != nil {
 				return rpcErr
 			}
 		}

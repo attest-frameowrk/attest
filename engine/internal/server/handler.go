@@ -3,7 +3,7 @@ package server
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
+	"github.com/segmentio/encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -452,7 +452,18 @@ func handleEvaluateBatch(pipeline *assertion.Pipeline, historyStore *cache.Histo
 		}
 
 		trace.Normalize(&p.Trace)
-		if rpcErr := trace.Validate(&p.Trace); rpcErr != nil {
+		// Compute trace size once to avoid re-serialization in Validate.
+		traceBytes, marshalErr := json.Marshal(&p.Trace)
+		if marshalErr != nil {
+			return nil, types.NewRPCError(
+				types.ErrInvalidTrace,
+				"trace could not be serialized for size check",
+				types.ErrTypeInvalidTrace,
+				false,
+				"Ensure all trace fields contain valid JSON-serializable values.",
+			)
+		}
+		if rpcErr := trace.Validate(&p.Trace, len(traceBytes)); rpcErr != nil {
 			return nil, rpcErr
 		}
 
