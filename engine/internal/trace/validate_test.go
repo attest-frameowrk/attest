@@ -149,7 +149,7 @@ func TestValidate(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			tr := tc.trace(t)
-			err := Validate(tr)
+			err := Validate(tr, 0)
 			if tc.wantErrCode == 0 {
 				if err != nil {
 					t.Errorf("expected no error, got code=%d message=%q", err.Code, err.Message)
