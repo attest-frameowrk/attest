@@ -7,7 +7,7 @@ toolchain go1.24.13
 require (
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 	github.com/segmentio/encoding v0.5.3
-	github.com/yalue/onnxruntime_go v1.26.0
+	github.com/yalue/onnxruntime_go v1.27.0
 	golang.org/x/time v0.14.0
 	modernc.org/sqlite v1.46.1
 )
